@@ -22,8 +22,8 @@ const tipSchema = new mongoose.Schema(
     quanHe:         { type: [String], default: [] },
     nguonPhienBan:  { type: String, default: '', maxlength: 10000 },
 
-    category: { type: String, default: 'general', index: true },
-    keywords: { type: [String], default: [], index: true },
+    category: { type: String, default: 'general' },
+    keywords: { type: [String], default: [] },
     qualityScore: { type: Number, default: 0, min: 0, max: 100 },
   },
   { timestamps: true, collection: 'tips' }
