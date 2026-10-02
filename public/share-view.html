@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>🐉 Rồng Thần — Chia sẻ</title>
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<style>
+  *, *::before, *::after {
+    margin: 0; padding: 0; box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html, body {
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+    background: #000;
+    color: #fff;
+  }
+
+  :root {
+    --bg-main: #000000;
+    --glass-bubble: rgba(255, 255, 255, 0.08);
+    --border-glass: rgba(255, 255, 255, 0.12);
+    --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.4);
+    --text-main: #ffffff;
+    --text-ai: #22c55e;
+    --text-muted: rgba(255, 255, 255, 0.5);
+    --accent: #22c55e;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+
+  .share-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px 16px;
+    padding-top: calc(14px + env(safe-area-inset-top));
+    border-bottom: 1px solid var(--border-glass);
+    position: sticky;
+    top: 0;
+    background: var(--bg-main);
+    z-index: 10;
+  }
+
+  .share-logo {
+    font-size: 22px;
+    letter-spacing: 2px;
+    user-select: none;
+  }
+
+  .share-label {
+    font-size: 13px;
+    color: var(--text-muted);
+    padding: 3px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--border-glass);
+    background: var(--glass-bubble);
+  }
+
+  .share-title-wrap {
+    padding: 16px 16px 8px;
+    border-bottom: 1px solid var(--border-glass);
+  }
+
+  .share-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-main);
+    word-wrap: break-word;
+  }
+
+  .share-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 6px;
+  }
+
+  .share-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 14px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .share-messages::-webkit-scrollbar { width: 3px; }
+  .share-messages::-webkit-scrollbar-thumb {
+    background: var(--border-glass);
+    border-radius: 3px;
+  }
+
+  .msg {
+    display: flex;
+    flex-direction: column;
+    max-width: 82%;
+    gap: 4px;
+    animation: msgIn 0.2s ease;
+  }
+
+  @keyframes msgIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .msg.ai { align-items: flex-start; align-self: flex-start; }
+  .msg.user { align-items: flex-end; align-self: flex-end; }
+
+  .avatar {
+    font-size: 20px;
+    line-height: 1;
+    padding: 0 4px;
+    user-select: none;
+  }
+
+  .msg.user .avatar { text-align: right; }
+
+  .bubble {
+    background: var(--glass-bubble);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--border-glass);
+    border-radius: 18px;
+    padding: 10px 14px;
+    font-size: 15px;
+    line-height: 1.45;
+    word-wrap: break-word;
+    word-break: break-word;
+    color: var(--text-main);
+    box-shadow: var(--shadow-glass);
+    white-space: pre-wrap;
+  }
+
+  .msg.ai .bubble {
+    color: var(--text-ai);
+    border-top-left-radius: 6px;
+  }
+
+  .msg.user .bubble {
+    color: var(--text-main);
+    border-top-right-radius: 6px;
+  }
+
+  .bubble .file-note {
+    display: block;
+    margin-top: 6px;
+    font-size: 13px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .state-view {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    text-align: center;
+    gap: 14px;
+  }
+
+  .state-icon { font-size: 56px; line-height: 1; }
+  .state-text { font-size: 16px; color: var(--text-muted); max-width: 320px; }
+
+  .spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid var(--border-glass);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .share-footer {
+    flex-shrink: 0;
+    padding: 12px 16px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border-glass);
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    background: var(--bg-main);
+  }
+
+  .share-footer a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  @media (max-width: 380px) {
+    .bubble { font-size: 14px; padding: 9px 12px; }
+    .share-title { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="share-header">
+  <div class="share-logo">🌔🔥🐉</div>
+  <span class="share-label">Chia sẻ</span>
+</header>
+
+<div id="state-loading" class="state-view">
+  <div class="spinner"></div>
+  <div class="state-text">Đang tải cuộc trò chuyện...</div>
+</div>
+
+<div id="state-error" class="state-view" style="display:none;">
+  <div class="state-icon">⚠️</div>
+  <div class="state-text" id="error-message">Không tìm thấy cuộc trò chuyện.</div>
+</div>
+
+<div id="state-content" style="display:none; flex:1; flex-direction:column;">
+  <div class="share-title-wrap">
+    <div class="share-title" id="share-title">Cuộc trò chuyện</div>
+    <div class="share-meta" id="share-meta"></div>
+  </div>
+
+  <main class="share-messages" id="share-messages"></main>
+</div>
+
+<footer class="share-footer">
+  Được chia sẻ từ <a href="/">🐉 Rồng Thần</a>
+</footer>
+
+<script>
+(function () {
+  const API_VIEW = '/api/share/view';
+
+  const stateLoading = document.getElementById('state-loading');
+  const stateError   = document.getElementById('state-error');
+  const stateContent = document.getElementById('state-content');
+  const errorMsg     = document.getElementById('error-message');
+  const shareTitleEl = document.getElementById('share-title');
+  const shareMetaEl  = document.getElementById('share-meta');
+  const messagesEl   = document.getElementById('share-messages');
+
+  function getSlug() {
+    const parts = window.location.pathname.split('/').filter(Boolean);
+    if (parts[0] === 'share' && parts[1]) return parts[1];
+    const url = new URL(window.location.href);
+    return url.searchParams.get('slug');
+  }
+
+  function showError(msg) {
+    stateLoading.style.display = 'none';
+    stateContent.style.display = 'none';
+    stateError.style.display = 'flex';
+    errorMsg.textContent = msg || 'Không tìm thấy cuộc trò chuyện.';
+  }
+
+  function showContent() {
+    stateLoading.style.display = 'none';
+    stateError.style.display = 'none';
+    stateContent.style.display = 'flex';
+  }
+
+  function formatDate(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function renderMessage(msg) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'msg ' + (msg.role === 'user' ? 'user' : 'ai');
+
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    avatar.textContent = msg.role === 'user' ? '🦖' : '🐲';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+
+    const text = document.createTextNode(msg.text || '');
+    bubble.appendChild(text);
+
+    if (msg.hasImage && msg.imageDescription) {
+      const note = document.createElement('span');
+      note.className = 'file-note';
+      note.textContent = `🖼️ Ảnh: ${msg.imageDescription.slice(0, 200)}`;
+      bubble.appendChild(note);
+    }
+
+    if (msg.hasFile && msg.fileName) {
+      const note = document.createElement('span');
+      note.className = 'file-note';
+      note.textContent = `📎 File: ${msg.fileName}`;
+      bubble.appendChild(note);
+    }
+
+    if (msg.hasVoice) {
+      const note = document.createElement('span');
+      note.className = 'file-note';
+      note.textContent = '🎤 Voice';
+      bubble.appendChild(note);
+    }
+
+    wrapper.appendChild(avatar);
+    wrapper.appendChild(bubble);
+    return wrapper;
+  }
+
+  async function loadShare() {
+    const slug = getSlug();
+
+    if (!slug) {
+      showError('Link chia sẻ không hợp lệ.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_VIEW}/${encodeURIComponent(slug)}`);
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      shareTitleEl.textContent = data.title || 'Cuộc trò chuyện';
+      shareMetaEl.textContent = `${data.messages?.length || 0} tin nhắn · ${formatDate(data.createdAt)}`;
+
+      messagesEl.innerHTML = '';
+      (data.messages || []).forEach((m) => {
+        messagesEl.appendChild(renderMessage(m));
+      });
+
+      showContent();
+    } catch (err) {
+      showError(err.message || 'Không tìm thấy cuộc trò chuyện.');
+    }
+  }
+
+  loadShare();
+})();
+</script>
+
+</body>
+</html>

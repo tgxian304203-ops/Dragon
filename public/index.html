@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>🐉 Rồng Thần</title>
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <header class="chat-header">
+    <button id="btn-left" class="icon-btn" aria-label="Menu trái">☰</button>
+    <div class="logo-center">🌔🔥🐉</div>
+    <button id="btn-right" class="icon-btn" aria-label="Menu phải">☰</button>
+  </header>
+
+  <main id="chat-messages" class="chat-messages">
+    <div class="msg ai">
+      <div class="avatar">🐲</div>
+      <div class="bubble">Xin chào! Ta là Rồng Thần. Ngươi cần gì?</div>
+    </div>
+  </main>
+
+  <div class="input-wrap" id="input-wrap">
+    <div class="input-bar">
+
+      <button class="icon-btn" id="btn-attach" aria-label="Đính kèm">➕</button>
+
+      <textarea id="msg-input" rows="1" placeholder="Nhập..." enterkeyhint="enter"></textarea>
+
+      <button class="icon-btn" id="btn-mic" aria-label="Ghi âm">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+      </button>
+
+      <button class="icon-btn" id="btn-send" aria-label="Gửi">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"/>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+
+    </div>
+
+    <input type="file" id="file-input-image" accept="image/*" hidden>
+    <input type="file" id="file-input-file" accept="*/*" hidden>
+  </div>
+
+</div>
+
+<!-- MENU TRÁI -->
+<aside id="menu-left" class="menu menu-left" aria-hidden="true">
+  <header class="menu-header">
+    <div class="menu-logo">🐲</div>
+    <button class="icon-btn close-btn" data-close="left" aria-label="Đóng">🔙</button>
+  </header>
+  <div class="menu-body">
+
+    <div class="menu-group">
+      <button class="menu-item" id="btn-new-chat">+ New Chat</button>
+      <button class="menu-item" id="btn-new-project">Tạo dự án</button>
+      <button class="menu-item" id="btn-share">Share</button>
+    </div>
+
+    <div class="menu-group">
+      <div class="menu-label">DỰ ÁN</div>
+      <div id="project-list" class="menu-sub-list">
+        <div class="menu-empty">Chưa có dự án</div>
+      </div>
+    </div>
+
+    <div class="menu-group">
+      <div class="menu-label">GẦN ĐÂY</div>
+      <div id="recent-list" class="menu-sub-list">
+        <div class="menu-empty">Chưa có cuộc trò chuyện</div>
+      </div>
+    </div>
+
+    <div class="menu-group">
+      <button class="menu-item" id="btn-theme">☀️ Chế độ sáng tối</button>
+      <button class="menu-item" id="btn-settings">⚙️ Cài đặt</button>
+    </div>
+
+    <div class="menu-group">
+      <button class="menu-item" id="btn-user-toggle">🥷🏿 Người dùng <span class="chev">▾</span></button>
+      <div class="user-sub hidden" id="user-sub">
+        <button class="menu-item sub" id="btn-login">Đăng nhập</button>
+        <button class="menu-item sub" id="btn-logout">Đăng xuất</button>
+        <button class="menu-item sub" id="btn-guest">Chế độ khách</button>
+      </div>
+    </div>
+
+  </div>
+</aside>
+
+<!-- MENU PHẢI -->
+<aside id="menu-right" class="menu menu-right" aria-hidden="true">
+  <header class="menu-header">
+    <button class="icon-btn close-btn" data-close="right" aria-label="Đóng">🔙</button>
+    <div class="menu-logo">🌕🐉</div>
+  </header>
+  <div class="menu-body">
+
+    <div class="brain-block">
+      <div class="brain-title">Left Brain</div>
+      <div class="brain-input">
+        <input type="password" id="input-left-key" placeholder="Dán API Key..." autocomplete="off">
+        <button class="run-btn" id="btn-run-left">Run</button>
+      </div>
+    </div>
+
+    <div class="brain-block">
+      <div class="brain-title">Right Brain</div>
+      <div class="brain-input">
+        <input type="password" id="input-right-key" placeholder="Dán API Key..." autocomplete="off">
+        <button class="run-btn" id="btn-run-right">Run</button>
+      </div>
+    </div>
+
+    <div class="keys-section">
+      <div class="menu-label">KEY ĐÃ LƯU</div>
+      <div class="key-group-title">LEFT BRAIN</div>
+      <div id="keys-left" class="key-list">
+        <div class="menu-empty">Chưa có key</div>
+      </div>
+      <div class="key-group-title">RIGHT BRAIN</div>
+      <div id="keys-right" class="key-list">
+        <div class="menu-empty">Chưa có key</div>
+      </div>
+    </div>
+
+  </div>
+</aside>
+
+<!-- MODAL: AUTH -->
+<div id="modal-auth" class="modal hidden">
+  <div class="modal-card">
+    <h3 class="modal-title" id="auth-title">Đăng nhập</h3>
+    <input type="text" id="auth-username" placeholder="Username" autocomplete="username">
+    <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password">
+    <div class="modal-error hidden" id="auth-error"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="auth-close">Hủy</button>
+      <button class="btn-primary" id="auth-submit">Đăng nhập</button>
+    </div>
+    <div class="modal-switch" id="auth-switch">
+      Chưa có tài khoản? <a href="#" id="auth-switch-link">Đăng ký</a>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: SETTINGS -->
+<div id="modal-settings" class="modal hidden">
+  <div class="modal-card">
+    <h3 class="modal-title">⚙️ Cài đặt</h3>
+    <button class="menu-item" id="settings-change-pw">🔐 Đổi mật khẩu</button>
+    <button class="menu-item danger" id="settings-delete-account">🗑️ Xóa tài khoản</button>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="settings-close">Đóng</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: NEW PROJECT -->
+<div id="modal-project" class="modal hidden">
+  <div class="modal-card">
+    <h3 class="modal-title">📁 Tạo dự án</h3>
+    <input type="text" id="project-name" placeholder="Tên dự án">
+    <input type="text" id="project-desc" placeholder="Mô tả (không bắt buộc)">
+    <div class="modal-error hidden" id="project-error"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="project-close">Hủy</button>
+      <button class="btn-primary" id="project-submit">Tạo</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: SHARE -->
+<div id="modal-share" class="modal hidden">
+  <div class="modal-card">
+    <h3 class="modal-title">🔗 Chia sẻ</h3>
+    <p class="modal-desc">Tạo link công khai cho cuộc trò chuyện hiện tại.</p>
+    <div id="share-result" class="hidden">
+      <input type="text" id="share-url" readonly>
+      <button class="btn-primary" id="share-copy">Copy</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="share-close">Đóng</button>
+      <button class="btn-primary" id="share-submit">Tạo link</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: ATTACH -->
+<div id="modal-attach" class="modal hidden">
+  <div class="modal-card">
+    <h3 class="modal-title">📎 Đính kèm</h3>
+    <button class="menu-item" id="attach-choose-image">🖼️ Gửi ảnh</button>
+    <button class="menu-item" id="attach-choose-file">📁 Gửi file</button>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="attach-close">Hủy</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: DELETE CONV -->
+<div id="modal-delete-conv" class="modal hidden">
+  <div class="modal-card">
+    <h3 class="modal-title">🗑️ Xóa cuộc trò chuyện</h3>
+    <p class="modal-desc">Xóa vĩnh viễn cuộc trò chuyện này và tất cả tin nhắn?</p>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="delete-conv-cancel">Hủy</button>
+      <button class="btn-primary danger" id="delete-conv-confirm">Xóa</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
