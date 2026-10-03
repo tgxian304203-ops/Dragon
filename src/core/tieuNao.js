@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 TIỂU NÃO — T17: 6 bước phân tích lỗi → sửa → test lại
+   🧠 TIỂU NÃO — Đọc TIP + ÁP DỤNG (toán → chạy Piston)
    ═══════════════════════════════════════════════════════════════ */
 
 const { testCode } = require('./pistonTest');
@@ -13,12 +13,129 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
 
   logger.info(`🧠 Tiểu não [${userRequestType}]: "${problem.slice(0, 60)}..."`);
 
-  if (userRequestType === 'no_code') return xuLyKhongCode({ tip, problem });
+  if (userRequestType === 'no_code') return await xuLyKhongCode({ tip, problem });
   return await xuLyCoCode({ tip, problem, owner });
 }
 
-function xuLyKhongCode({ tip, problem }) {
+/* ═══════════════ KHÔNG CODE ═══════════════ */
+
+async function xuLyKhongCode({ tip, problem }) {
+  // 1. Thử trích biểu thức toán học từ câu hỏi
+  const expr = extractMathExpression(problem);
+
+  if (expr) {
+    logger.info(`🧮 Phát hiện biểu thức: ${expr}`);
+    const result = await tinhToan(expr, tip);
+
+    if (result) {
+      return {
+        answer: result,
+        type: 'no_code',
+        meta: { tipId: tip._id?.toString() || null, mathExpression: expr },
+      };
+    }
+  }
+
+  // 2. Không phải toán → format TIP như cũ
+  return {
+    answer: formatTIPDayDu(tip),
+    type: 'no_code',
+    meta: { tipId: tip._id?.toString() || null },
+  };
+}
+
+/**
+ * Trích biểu thức toán học từ câu hỏi
+ * VD: "50 cộng 50 bằng mấy" → "50 + 50"
+ *     "100 nhân 100" → "100 * 100"
+ *     "1000+1000=?" → "1000 + 1000"
+ */
+function extractMathExpression(text) {
+  if (!text) return null;
+
+  let s = String(text).toLowerCase();
+
+  // Map từ tiếng Việt → toán tử
+  const opMap = [
+    { words: ['cộng', 'plus', 'add'], op: '+' },
+    { words: ['trừ', 'minus', 'subtract'], op: '-' },
+    { words: ['nhân', 'multiply', 'times'], op: '*' },
+    { words: ['chia', 'divide'], op: '/' },
+    { words: ['mũ', 'lũy thừa', 'power'], op: '**' },
+  ];
+
+  for (const { words, op } of opMap) {
+    for (const w of words) {
+      const re = new RegExp(`(-?\\d+(?:\\.\\d+)?)\\s*${w}\\s*(-?\\d+(?:\\.\\d+)?)`, 'i');
+      const m = s.match(re);
+      if (m) return `${m[1]} ${op} ${m[2]}`;
+    }
+  }
+
+  // Fallback: regex ký hiệu toán tử
+  // Tìm pattern số OP số (cho phép khoảng trắng)
+  const symbolRe = /(-?\d+(?:\.\d+)?)\s*([+\-*/xX])\s*(-?\d+(?:\.\d+)?)/;
+  const m = s.match(symbolRe);
+  if (m) {
+    let op = m[2];
+    if (op === 'x' || op === 'X') op = '*';
+    return `${m[1]} ${op} ${m[3]}`;
+  }
+
+  return null;
+}
+
+/**
+ * Tính biểu thức bằng Piston (Python)
+ */
+async function tinhToan(expr, tip) {
+  // Sinh code Python tính
+  const code = `result = ${expr}\nprint(result)`;
+
+  const testResult = await testCode({
+    code,
+    language: 'python',
+  });
+
+  if (!testResult.success) {
+    logger.warn(`Piston tính lỗi: ${testResult.error}`);
+    return null;
+  }
+
+  const output = (testResult.stdout || '').trim();
+  if (!output) return null;
+
+  // Format kết quả
   const parts = [];
+
+  // Dòng 1: câu trả lời ngắn gọn, nổi bật
+  parts.push(`## ${expr} = **${output}**`);
+
+  // Dòng 2-3: trích ngắn từ TIP
+  if (tip.nguyenLy) {
+    parts.push('');
+    parts.push(`📌 **Nguyên lý:** ${truncate(tip.nguyenLy, 200)}`);
+  }
+
+  if (tip.kiemChung) {
+    parts.push('');
+    parts.push(`🔍 **Kiểm chứng:** ${truncate(tip.kiemChung, 200)}`);
+  }
+
+  if (tip.ngoaiLe) {
+    parts.push('');
+    parts.push(`⚠️ **Lưu ý:** ${truncate(tip.ngoaiLe, 150)}`);
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Format đầy đủ TIP (khi không phải toán)
+ */
+function formatTIPDayDu(tip) {
+  const parts = [];
+
   parts.push(`📌 **Nguyên lý:**\n${tip.nguyenLy || '(chưa có)'}`);
   if (tip.quyTac) parts.push(`\n📏 **Quy tắc:**\n${tip.quyTac}`);
   if (tip.dieuKien) parts.push(`\n🔗 **Điều kiện:**\n${tip.dieuKien}`);
@@ -33,12 +150,16 @@ function xuLyKhongCode({ tip, problem }) {
   if (tip.caseKinhNghiem) parts.push(`\n💡 **Case:**\n${tip.caseKinhNghiem}`);
   if (tip.nguonPhienBan) parts.push(`\n📚 **Nguồn:** ${tip.nguonPhienBan}`);
 
-  return {
-    answer: parts.join('\n'),
-    type: 'no_code',
-    meta: { tipId: tip._id?.toString() || null },
-  };
+  return parts.join('\n');
 }
+
+function truncate(s, n) {
+  if (!s) return '';
+  s = String(s).trim();
+  return s.length <= n ? s : s.slice(0, n - 3) + '...';
+}
+
+/* ═══════════════ CÓ CODE ═══════════════ */
 
 async function xuLyCoCode({ tip, problem, owner }) {
   const nguyenLy = tip.nguyenLy || '';
@@ -286,4 +407,5 @@ module.exports = {
   xuLy, xuLyKhongCode, xuLyCoCode,
   extractAllCodeBlocks, tipCoCode,
   phanTichLoi, timCachSua,
+  extractMathExpression, tinhToan,
 };
