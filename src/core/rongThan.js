@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    🐉 RỒNG THẦN — Orchestrator (R1–R8)
    - Check testsFailed từ Não phải → bổ sung
+   - Check câu hỏi thời gian → trả lời từ đồng hồ hệ thống
    ═══════════════════════════════════════════════════════════════ */
 
 const { docNguCanh, rutGonChoNao } = require('./docNguCanh');
@@ -13,6 +14,79 @@ const { danhGiaTIP } = require('./danhGiaTIP');
 const contextService = require('../services/context.service');
 const logger = require('../utils/logger');
 
+/* ═══════════════════════════════════════════════════════════════
+   🕐 THỜI GIAN THỰC — trả lời câu hỏi thời gian (giờ VN)
+   ═══════════════════════════════════════════════════════════════ */
+
+const TZ_VN = 'Asia/Ho_Chi_Minh';
+
+const THU_MAP = {
+  Sun: 'Chủ nhật',
+  Mon: 'Thứ hai',
+  Tue: 'Thứ ba',
+  Wed: 'Thứ tư',
+  Thu: 'Thứ năm',
+  Fri: 'Thứ sáu',
+  Sat: 'Thứ bảy',
+};
+
+const TIME_PATTERNS = [
+  /hôm nay\s+(là\s+)?(thứ mấy|ngày\s+(bao nhiêu|mấy|gì)|ngày mấy)/i,
+  /bây giờ\s+(là\s+)?(mấy giờ|thứ mấy|ngày mấy|ngày bao nhiêu)/i,
+  /(thứ mấy|ngày mấy|ngày bao nhiêu|mấy giờ)\s*(rồi|vậy|hôm nay|bây giờ)?/i,
+  /hôm nay\s+ngày\s+bao\s+nhiêu/i,
+  /cho\s+(tôi|mình|em|anh|chị)\s+biết\s+(hôm nay|bây giờ)/i,
+  /(hôm nay|bây giờ)\s+(là\s+)?ngày\s+gì/i,
+];
+
+function laCauHoiThoiGian(problem) {
+  if (typeof problem !== 'string') return false;
+  return TIME_PATTERNS.some((re) => re.test(problem));
+}
+
+function layThoiGianVN() {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ_VN,
+    weekday: 'short',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(now);
+
+  const map = {};
+  for (const p of parts) map[p.type] = p.value;
+
+  return {
+    thu: THU_MAP[map.weekday] || map.weekday,
+    ngay: map.day,
+    thang: map.month,
+    nam: map.year,
+    gio: map.hour,
+    phut: map.minute,
+  };
+}
+
+function traLoiThoiGian() {
+  const t = layThoiGianVN();
+  return (
+    `🕐 **Hôm nay là ${t.thu}, ngày ${t.ngay}/${t.thang}/${t.nam}**\n` +
+    `Bây giờ là **${t.gio}:${t.phut}** (giờ Việt Nam)`
+  );
+}
+
+function layThoiGianChoContext() {
+  const t = layThoiGianVN();
+  return `Thời gian hiện tại (giờ Việt Nam): ${t.thu}, ${t.ngay}/${t.thang}/${t.nam} ${t.gio}:${t.phut}`;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   🐉 HÀM CHÍNH
+   ═══════════════════════════════════════════════════════════════ */
+
 async function xuLy({ message, conversationId, userId, guestSessionId }) {
   if (!message || message.trim() === '') throw new Error('Tin nhắn rỗng');
   if (!conversationId) throw new Error('Thiếu conversationId');
@@ -22,7 +96,20 @@ async function xuLy({ message, conversationId, userId, guestSessionId }) {
 
   logger.info(`🐉 Rồng Thần: "${problem.slice(0, 80)}..."`);
 
+  // ═══ [MỚI] Check câu hỏi thời gian → trả lời từ đồng hồ hệ thống ═══
+  if (laCauHoiThoiGian(problem)) {
+    logger.info('🕐 Câu hỏi thời gian → trả lời từ đồng hồ hệ thống');
+    return {
+      answer: traLoiThoiGian(),
+      source: 'system_clock',
+      meta: { type: 'time_query' },
+    };
+  }
+
   const context = await docNguCanh({ conversationId, userId, guestSessionId });
+
+  // ═══ [MỚI] Inject thời gian thực vào context để Não biết "hôm nay" ═══
+  context.thoiGianHienTai = layThoiGianChoContext();
 
   const analysis = phanTichYeuCau({ problem, context });
   logger.info(`🐉 Phân tích: web=${analysis.needWeb}, code=${analysis.needCode}, intent=${analysis.intent}`);
