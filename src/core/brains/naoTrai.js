@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 NÃO TRÁI — Tạo TIP 14 trường + 4 trường máy
    - Retry với blacklist model khi JSON parse fail
+   - Sanitize JSON trước khi parse (fix key thiếu ngoặc kép)
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
@@ -19,6 +20,34 @@ const VALID_LOGIC_TYPES = ['expr', 'code', 'patch', ''];
 
 const MAX_JSON_RETRY = 3;
 
+/**
+ * Làm sạch text JSON trước khi parse.
+ * - Bỏ ký tự zero-width, BOM
+ * - Bỏ trailing comma: {"a":1,} → {"a":1}
+ * - Thêm ngoặc kép cho key không có: {a:1} → {"a":1}
+ */
+function sanitizeJsonText(text) {
+  if (!text || typeof text !== 'string') return '';
+
+  let s = text;
+
+  // Bỏ ký tự vô hình
+  s = s.replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+  // Bỏ trailing comma trước } hoặc ]
+  s = s.replace(/,\s*([}\]])/g, '$1');
+
+  // Thêm dấu " cho key không có ngoặc kép
+  // VD: {a:1, b:"x"} → {"a":1, "b":"x"}
+  // Hỗ trợ cả key tiếng Việt (unicode)
+  s = s.replace(
+    /([{,]\s*)([a-zA-Z_\u00C0-\u1EF9][a-zA-Z0-9_\u00C0-\u1EF9]*)\s*:/g,
+    '$1"$2":'
+  );
+
+  return s;
+}
+
 function parseJSONFromModel(raw) {
   if (!raw || typeof raw !== 'string') throw new Error('Output rỗng');
 
@@ -28,23 +57,35 @@ function parseJSONFromModel(raw) {
   const block = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
   if (block) text = block[1].trim();
 
-  // Thử parse trực tiếp
-  try {
-    return JSON.parse(text);
-  } catch (_) {
-    // Thử tìm cặp {} đầu tiên
-    const first = text.indexOf('{');
-    const last = text.lastIndexOf('}');
-    if (first !== -1 && last > first) {
-      const sliced = text.slice(first, last + 1);
-      try {
-        return JSON.parse(sliced);
-      } catch (err) {
-        throw new Error(`Không parse được JSON: ${err.message}`);
-      }
-    }
-    throw new Error('Không tìm thấy JSON trong output model');
+  // Chuẩn bị các ứng viên để thử parse
+  const candidates = [text];
+
+  const first = text.indexOf('{');
+  const last = text.lastIndexOf('}');
+  if (first !== -1 && last > first) {
+    const sliced = text.slice(first, last + 1);
+    if (sliced !== text) candidates.push(sliced);
   }
+
+  let lastErr = null;
+  for (const cand of candidates) {
+    // Thử parse trực tiếp
+    try {
+      return JSON.parse(cand);
+    } catch (err) {
+      lastErr = err;
+    }
+
+    // Thử parse sau khi sanitize
+    try {
+      const cleaned = sanitizeJsonText(cand);
+      return JSON.parse(cleaned);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+
+  throw new Error(`Không parse được JSON: ${lastErr?.message || 'unknown'}`);
 }
 
 function normalizeTIP(raw) {
@@ -99,10 +140,6 @@ function normalizeTIP(raw) {
   return tip;
 }
 
-/**
- * Gọi model + parse JSON, tự retry với model khác nếu parse fail.
- * @returns {{ tip, meta }}
- */
 async function goiVaParse({ side, owner, messages, tempKeys, label }) {
   const excludeModels = new Set();
   let lastErr = null;
@@ -158,7 +195,6 @@ async function goiVaParse({ side, owner, messages, tempKeys, label }) {
         `(model ${result.provider}/${result.modelId}): ${parseErr.message}`
       );
 
-      // Blacklist model này → lần sau thử model khác
       excludeModels.add(result.modelId);
     }
   }
@@ -237,5 +273,6 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner, te
 
 module.exports = {
   phanTich, boSung, parseJSONFromModel, normalizeTIP,
+  sanitizeJsonText,
   FIELDS_14, VALID_CATEGORIES, VALID_LOGIC_TYPES,
 };
