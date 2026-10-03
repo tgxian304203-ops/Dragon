@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 NÃO TRÁI — Tạo TIP 14 trường + 4 trường máy
    - JSON mode + retry blacklist model
-   - Sanitize JSON trước khi parse
+   - Sanitize JSON mạnh — bắt mọi dạng output model
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
@@ -20,12 +20,32 @@ const VALID_LOGIC_TYPES = ['expr', 'code', 'patch', ''];
 
 const MAX_JSON_RETRY = 3;
 
+/**
+ * Làm sạch text JSON — loại bỏ mọi ký tự không thuộc JSON.
+ */
 function sanitizeJsonText(text) {
   if (!text || typeof text !== 'string') return '';
 
   let s = text;
-  s = s.replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+  // 1. Bỏ ký tự vô hình
+  s = s.replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '');
+
+  // 2. Bỏ markdown code fence nếu còn
+  s = s.replace(/^```(?:json|JSON)?\s*/i, '');
+  s = s.replace(/\s*```\s*$/i, '');
+
+  // 3. Tìm dấu { đầu tiên và } cuối cùng — cắt bỏ mọi thứ ngoài
+  const first = s.indexOf('{');
+  const last = s.lastIndexOf('}');
+  if (first !== -1 && last > first) {
+    s = s.slice(first, last + 1);
+  }
+
+  // 4. Bỏ trailing comma: {"a":1,} → {"a":1}
   s = s.replace(/,\s*([}\]])/g, '$1');
+
+  // 5. Thêm ngoặc kép cho key không có: {a:1} → {"a":1}
   s = s.replace(
     /([{,]\s*)([a-zA-Z_\u00C0-\u1EF9][a-zA-Z0-9_\u00C0-\u1EF9]*)\s*:/g,
     '$1"$2":'
@@ -34,35 +54,41 @@ function sanitizeJsonText(text) {
   return s;
 }
 
+/**
+ * Parse JSON — thử nhiều biến thể.
+ */
 function parseJSONFromModel(raw) {
   if (!raw || typeof raw !== 'string') throw new Error('Output rỗng');
 
-  let text = raw.trim();
-  const block = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (block) text = block[1].trim();
-
+  const text = raw.trim();
   const candidates = [text];
 
+  // Biến thể 1: bỏ markdown
+  const noMd = text.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, '$1').trim();
+  if (noMd !== text) candidates.push(noMd);
+
+  // Biến thể 2: cắt từ { đến }
   const first = text.indexOf('{');
   const last = text.lastIndexOf('}');
   if (first !== -1 && last > first) {
-    const sliced = text.slice(first, last + 1);
-    if (sliced !== text) candidates.push(sliced);
+    candidates.push(text.slice(first, last + 1));
   }
+
+  // Biến thể 3: sanitize mạnh
+  candidates.push(sanitizeJsonText(text));
 
   let lastErr = null;
   for (const cand of candidates) {
+    if (!cand) continue;
     try {
       return JSON.parse(cand);
     } catch (err) {
       lastErr = err;
     }
-    try {
-      return JSON.parse(sanitizeJsonText(cand));
-    } catch (err) {
-      lastErr = err;
-    }
   }
+
+  // Log raw text để debug
+  logger.warn(`❌ Parse JSON fail. Raw (300 ký tự đầu): ${text.slice(0, 300)}`);
 
   throw new Error(`Không parse được JSON: ${lastErr?.message || 'unknown'}`);
 }
@@ -135,7 +161,7 @@ async function goiVaParse({ side, owner, messages, tempKeys, label }) {
           temperature: 0.2,
           maxTokens: 4096,
           excludeModels: [...excludeModels],
-          responseFormat: 'json', // [MỚI] bật JSON mode
+          responseFormat: 'json',
         },
         tempKeys,
       });
@@ -174,7 +200,6 @@ async function goiVaParse({ side, owner, messages, tempKeys, label }) {
         `${label} — parse JSON lỗi lần ${attempt} ` +
         `(model ${result.provider}/${result.modelId}): ${parseErr.message}`
       );
-
       excludeModels.add(result.modelId);
     }
   }

@@ -1,16 +1,17 @@
 /* ═══════════════════════════════════════════════════════════════
-   📞 GỌI MODEL — KEY-FIRST đơn giản (NT9, NP9, TU7)
-   - Load key của Não → sort theo quota → loop từng key
-   - Mỗi key: dò model → sort priority → loop model → gọi API
-   - Hết model key này → qua key tiếp
-   - Hết key → báo lỗi
+   📞 GỌI MODEL — TIER-FIRST (NT9, NP9, TU7)
+   - Load key → dò model → gộp tier
+   - Tier 1: dùng hết model mạnh nhất xuyên provider
+   - Hết tier 1 → tier 2 → ... → tier 5
+   - Tự bắt model chết (404 / decommissioned) → blacklist
    ═══════════════════════════════════════════════════════════════ */
 
 const BrainKey = require('../../models/brainKey.model');
 const gemini = require('../providers/gemini.adapter');
 const groq = require('../providers/groq.adapter');
 const openrouter = require('../providers/openrouter.adapter');
-const { sortByPriority } = require('./modelPriority');
+const { getTier } = require('../../config/providers');
+const { isBlocked } = require('./modelPriority');
 const quotaTracker = require('./quotaTracker');
 const modelCache = require('./modelCache');
 const { doModel } = require('./doModel');
@@ -18,9 +19,10 @@ const logger = require('../../utils/logger');
 
 const ADAPTERS = { gemini, groq, openrouter };
 
-/**
- * Load tất cả key đang sống của 1 não.
- */
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS
+   ═══════════════════════════════════════════════════════════════ */
+
 async function loadAliveKeys(side, userId, guestSessionId) {
   const query = { side, alive: true };
   if (userId) query.userId = userId;
@@ -30,9 +32,6 @@ async function loadAliveKeys(side, userId, guestSessionId) {
   return BrainKey.find(query).lean();
 }
 
-/**
- * Đảm bảo key có danh sách model. Dùng cache → DB → dò mới.
- */
 async function ensureModels(side, key) {
   const keyIdStr = String(key._id);
   const cached = modelCache.get(side, keyIdStr);
@@ -52,14 +51,26 @@ async function ensureModels(side, key) {
     );
     return models;
   } catch (err) {
-    logger.warn(`Không dò được model cho key ${keyIdStr} (${key.provider}): ${err.message}`);
+    logger.warn(`Không dò được model key ${keyIdStr} (${key.provider}): ${err.message}`);
     return [];
   }
 }
 
 /**
- * Gọi model theo cơ chế KEY-FIRST.
+ * Nhận diện lỗi model đã chết (decommissioned / not found).
  */
+function isModelDeadError(status, message) {
+  if (status === 404) return true;
+  if (status === 400 && /decommission|not found|invalid model|model.*not.*exist/i.test(message || '')) {
+    return true;
+  }
+  return false;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN — TIER-FIRST
+   ═══════════════════════════════════════════════════════════════ */
+
 async function callModel({ side, userId, guestSessionId, messages, options = {} }) {
   if (!['left', 'right'].includes(side)) {
     throw new Error('side phải là left/right');
@@ -69,13 +80,12 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
     Array.isArray(options.excludeModels) ? options.excludeModels : []
   );
 
-  // ═══ BƯỚC 1 — Load key ═══
+  /* ═══ BƯỚC 1 — Load key + sort theo quota ═══ */
   const keys = await loadAliveKeys(side, userId, guestSessionId);
   if (keys.length === 0) {
     throw new Error(`Não ${side === 'left' ? 'trái' : 'phải'} chưa có key nào hoạt động`);
   }
 
-  // ═══ BƯỚC 2 — Gắn quota hiệu dụng + sort key (khỏe trước) ═══
   for (const k of keys) {
     k._quotaHieuDung = quotaTracker.layQuotaHieuDung(k);
   }
@@ -86,105 +96,156 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
     keys.map((k) => `${k.provider}(${k._quotaHieuDung}%)`).join(' → ')
   );
 
-  const lastErrors = [];
+  /* ═══ BƯỚC 2 — Dò model cho từng key ═══ */
+  for (const key of keys) {
+    key._models = await ensureModels(side, key);
+  }
 
-  // ═══ BƯỚC 3 — Loop từng key ═══
-  for (let ki = 0; ki < keys.length; ki++) {
-    const key = keys[ki];
-    const keyIdStr = String(key._id);
-    const provider = key.provider;
-    const adapter = ADAPTERS[provider];
+  /* ═══ BƯỚC 3 — Gộp model pool: { modelId → [{key, provider, tier}] } ═══ */
+  const modelPool = new Map();
 
-    if (!adapter) {
-      logger.warn(`Key ${keyIdStr}: provider ${provider} không hỗ trợ`);
-      continue;
-    }
-
-    // ═══ BƯỚC 4 — Dò model cho key này ═══
-    const rawModels = await ensureModels(side, key);
-    if (!rawModels || rawModels.length === 0) {
-      logger.warn(`⚠️ Key ${provider} (${keyIdStr}) không có model → qua key tiếp`);
-      continue;
-    }
-
-    // ═══ BƯỚC 5 — Sort model theo priority + bỏ blacklist ═══
-    const sortedModels = sortByPriority(provider, rawModels).filter(
-      (m) => !excludeModels.has(m)
-    );
-
-    if (sortedModels.length === 0) {
-      logger.warn(`⚠️ Key ${provider} (${keyIdStr}) hết model khả dụng → qua key tiếp`);
-      continue;
-    }
-
-    logger.debug(
-      `🔑 Key ${provider} (${keyIdStr}) — quota=${key._quotaHieuDung}%, ` +
-      `${sortedModels.length} model: ${sortedModels.slice(0, 3).join(', ')}...`
-    );
-
-    // ═══ BƯỚC 6 — Loop từng model của key này ═══
-    for (const modelId of sortedModels) {
-      try {
-        logger.debug(`→ Gọi ${provider}/${modelId} (key ${keyIdStr})`);
-
-        const result = await adapter.chat(
-          key.keyValue,
-          modelId,
-          messages,
-          options
-        );
-
-        if (result.rateLimit) {
-          await quotaTracker.updateQuota(key._id, result.rateLimit);
-        }
-
-        logger.success(`Gọi OK: ${provider}/${modelId}`);
-
-        return {
-          text: result.text,
-          usage: result.usage || {},
-          provider,
-          modelId,
-          keyId: key._id,
-        };
-      } catch (err) {
-        const status = err.status;
-        logger.warn(`Lỗi ${provider}/${modelId} (key ${keyIdStr}): ${err.message}`);
-        lastErrors.push(`${provider}/${modelId}: ${err.message}`);
-
-        // 401/403 — key chết → đánh dấu + thoát khỏi key này
-        if (status === 401 || status === 403) {
-          await BrainKey.updateOne({ _id: key._id }, { $set: { alive: false } });
-          modelCache.clear(side, keyIdStr);
-          logger.warn(`☠️ Key ${provider} (${keyIdStr}) chết → bỏ qua`);
-          break;
-        }
-
-        // 429 — hết quota → đánh dấu + thoát khỏi key này
-        if (status === 429) {
-          await quotaTracker.markExhausted(key._id);
-          logger.warn(`🔋 Key ${provider} (${keyIdStr}) hết quota → qua key tiếp`);
-          break;
-        }
-
-        // 400 — request sai → thử model khác
-        // Các lỗi khác — thử model khác
+  for (const key of keys) {
+    const models = key._models || [];
+    for (const modelId of models) {
+      if (isBlocked(modelId)) continue;
+      if (excludeModels.has(modelId)) continue;
+      if (modelCache.isDead(key.provider, modelId)) {
+        logger.debug(`💀 Skip model chết: ${key.provider}/${modelId}`);
         continue;
       }
-    }
 
-    // ═══ BƯỚC 7 — Hết model key này → log + qua key tiếp ═══
-    const nextKey = keys[ki + 1];
-    if (nextKey) {
-      logger.warn(`⚠️ Key ${provider} hết model → qua key ${nextKey.provider}`);
-    } else {
-      logger.warn(`⚠️ Key ${provider} hết model — không còn key nào`);
+      if (!modelPool.has(modelId)) modelPool.set(modelId, []);
+      modelPool.get(modelId).push({
+        keyId: key._id,
+        keyValue: key.keyValue,
+        provider: key.provider,
+        quota: key._quotaHieuDung,
+        tier: getTier(modelId),
+      });
     }
   }
 
-  // ═══ BƯỚC 8 — Hết key ═══
+  if (modelPool.size === 0) {
+    throw new Error(`Não ${side === 'left' ? 'trái' : 'phải'}: không có model nào khả dụng`);
+  }
+
+  /* ═══ BƯỚC 4 — Group model theo TIER ═══ */
+  const tierGroups = new Map(); // tier → [modelId]
+
+  for (const modelId of modelPool.keys()) {
+    const tier = getTier(modelId);
+    if (!tierGroups.has(tier)) tierGroups.set(tier, []);
+    tierGroups.get(tier).push(modelId);
+  }
+
+  const sortedTiers = [...tierGroups.keys()].sort((a, b) => a - b);
+
+  logger.debug(
+    `🎯 Model pool: ${modelPool.size} model — ` +
+    `các tier: ${sortedTiers.map((t) => `T${t}[${tierGroups.get(t).length}]`).join(' ')}`
+  );
+
+  const lastErrors = [];
+
+  /* ═══ BƯỚC 5 — Loop từng TIER ═══ */
+  for (const tier of sortedTiers) {
+    const modelsInTier = tierGroups.get(tier);
+
+    // Sort model trong tier theo alphabet để ổn định
+    modelsInTier.sort();
+
+    logger.debug(`📍 Tier ${tier} — ${modelsInTier.length} model: ${modelsInTier.join(', ')}`);
+
+    for (const modelId of modelsInTier) {
+      const keyCandidates = modelPool.get(modelId) || [];
+
+      // Sort key theo quota (khỏe trước)
+      keyCandidates.sort((a, b) => b.quota - a.quota);
+
+      logger.debug(
+        `🔍 Model "${modelId}" (T${tier}) — ${keyCandidates.length} key: ` +
+        keyCandidates.map((k) => `${k.provider}(${k.quota}%)`).join(', ')
+      );
+
+      for (const cand of keyCandidates) {
+        if (cand.quota <= 0) {
+          logger.debug(`⏭️ Skip key ${cand.provider} — quota 0%`);
+          continue;
+        }
+
+        const adapter = ADAPTERS[cand.provider];
+        if (!adapter) {
+          logger.warn(`Provider ${cand.provider} không hỗ trợ`);
+          continue;
+        }
+
+        try {
+          logger.debug(`→ Gọi ${cand.provider}/${modelId}`);
+
+          const result = await adapter.chat(
+            cand.keyValue,
+            modelId,
+            messages,
+            options
+          );
+
+          if (result.rateLimit) {
+            await quotaTracker.updateQuota(cand.keyId, result.rateLimit);
+          }
+
+          logger.success(`✅ Gọi OK: ${cand.provider}/${modelId} (T${tier})`);
+
+          return {
+            text: result.text,
+            usage: result.usage || {},
+            provider: cand.provider,
+            modelId,
+            keyId: cand.keyId,
+          };
+        } catch (err) {
+          const status = err.status;
+          logger.warn(
+            `❌ Lỗi ${cand.provider}/${modelId}: ${err.message}`
+          );
+          lastErrors.push(`${cand.provider}/${modelId}: ${err.message}`);
+
+          // 404 / decommissioned — model chết
+          if (isModelDeadError(status, err.message)) {
+            modelCache.markDead(cand.provider, modelId);
+            logger.warn(`☠️ Model ${cand.provider}/${modelId} chết → blacklist 1h`);
+            break;
+          }
+
+          // 401/403 — key chết
+          if (status === 401 || status === 403) {
+            await BrainKey.updateOne({ _id: cand.keyId }, { $set: { alive: false } });
+            modelCache.clear(side, String(cand.keyId));
+            logger.warn(`☠️ Key ${cand.provider} chết → bỏ`);
+            continue;
+          }
+
+          // 429 — hết quota
+          if (status === 429) {
+            await quotaTracker.markExhausted(cand.keyId);
+            cand.quota = 0;
+            logger.warn(`🔋 Key ${cand.provider} hết quota → qua key tiếp`);
+            continue;
+          }
+
+          // 400 khác (context_length, params) → thử key tiếp
+          continue;
+        }
+      }
+
+      logger.debug(`⚠️ Model "${modelId}" hết key khả dụng`);
+    }
+
+    logger.debug(`⚠️ Hết tier ${tier}`);
+  }
+
+  /* ═══ BƯỚC 6 — Hết tất cả ═══ */
   throw new Error(
-    `Não ${side === 'left' ? 'trái' : 'phải'}: tất cả key thất bại (${keys.length} key). ` +
+    `Não ${side === 'left' ? 'trái' : 'phải'}: tất cả tier thất bại. ` +
     `Chi tiết: ${lastErrors.slice(-5).join(' | ')}`
   );
 }

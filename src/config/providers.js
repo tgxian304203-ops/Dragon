@@ -1,5 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
-   🌐 BASE URL 3 PROVIDER + BẢNG ƯU TIÊN MODEL FREE
+   🌐 PROVIDERS + MODEL PRIORITY + TIER
+   - Model Groq đã chết (llama-3.3-70b, kimi-k2...) đã xóa
+   - Mỗi model gán tier 1-4 (1 = mạnh nhất)
+   - Tier-first: dùng hết tier 1 xuyên provider → tier 2 → ...
    ═══════════════════════════════════════════════════════════════ */
 
 const PROVIDERS = {
@@ -28,24 +31,28 @@ const PROVIDERS = {
   },
 };
 
-// Bảng ưu tiên model FREE
-// Groq: ưu tiên llama-3.3-70b (ổn định, JSON mode tốt)
-// gpt-oss-120b/20b xuống dưới vì hay lỗi JSON
+/* ═══════════════════════════════════════════════════════════════
+   BẢNG ƯU TIÊN MODEL FREE — chỉ model CÒN SỐNG
+   Groq đã xóa:
+     - llama-3.3-70b-versatile (chết 16/08/26)
+     - moonshotai/kimi-k2-instruct (chết 10/10/25)
+     - meta-llama/llama-4-maverick (chết 03/09/26)
+     - meta-llama/llama-4-scout (không ổn định)
+     - gemma2-9b-it (chết 10/08/25)
+   ═══════════════════════════════════════════════════════════════ */
+
 const MODEL_PRIORITY = {
   gemini: [
     'gemini-3.8-flash',
     'gemini-3.7-flash',
-    'gemini-3.1-flash-lite',
     'gemini-2.5-flash',
+    'gemini-3.1-flash-lite',
   ],
   groq: [
-    'llama-3.3-70b-versatile',
-    'llama-3.1-8b-instant',
     'openai/gpt-oss-120b',
     'openai/gpt-oss-20b',
-    'moonshotai/kimi-k2-instruct',
     'qwen/qwen3.6-27b',
-    'meta-llama/llama-4-scout-17b',
+    'qwen/qwen3.8-27b',
   ],
   openrouter: [
     'nvidia/nemotron-3-ultra:free',
@@ -56,14 +63,72 @@ const MODEL_PRIORITY = {
   ],
 };
 
-// Whitelist model FREE của Gemini
+/* ═══════════════════════════════════════════════════════════════
+   TIER — Sức mạnh model xuyên provider
+   Tier 1: mạnh nhất — dùng hết tier 1 xuyên provider trước
+   Tier 2: mạnh nhì
+   Tier 3: trung bình
+   Tier 4: yếu
+   ═══════════════════════════════════════════════════════════════ */
+
+const MODEL_TIER = {
+  // ═══ TIER 1 — Model mạnh nhất mỗi provider ═══
+  'gemini-3.8-flash': 1,
+  'openai/gpt-oss-120b': 1,
+  'nvidia/nemotron-3-ultra:free': 1,
+
+  // ═══ TIER 2 — Mạnh nhì ═══
+  'gemini-3.7-flash': 2,
+  'qwen/qwen3.6-27b': 2,
+  'poolside/laguna-s-2.1:free': 2,
+
+  // ═══ TIER 3 — Trung bình ═══
+  'gemini-2.5-flash': 3,
+  'openai/gpt-oss-20b': 3,
+  'qwen/qwen3.8-27b': 3,
+  'stealth/space-bunny-alpha:free': 3,
+
+  // ═══ TIER 4 — Yếu ═══
+  'gemini-3.1-flash-lite': 4,
+  'inclusionai/ling-3.0-flash-fin:free': 4,
+  'google/gemma-4-26b-a4b-it:free': 4,
+};
+
+// Nếu model không có trong MODEL_TIER → coi như tier 5 (yếu nhất)
+const DEFAULT_TIER = 5;
+
+/* ═══════════════════════════════════════════════════════════════
+   WHITELIST model FREE Gemini (chỉ model hỗ trợ generateContent)
+   ═══════════════════════════════════════════════════════════════ */
+
 const GEMINI_FREE_MODELS = new Set([
   'gemini-3.8-flash',
   'gemini-3.7-flash',
   'gemini-3.1-flash-lite',
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
+  'gemini-3.5-flash-lite',
   'gemini-3.1-flash',
 ]);
 
-module.exports = { PROVIDERS, MODEL_PRIORITY, GEMINI_FREE_MODELS };
+/* ═══════════════════════════════════════════════════════════════
+   HELPER — Lấy tier của model
+   ═══════════════════════════════════════════════════════════════ */
+
+function getTier(modelId) {
+  if (!modelId) return DEFAULT_TIER;
+  return MODEL_TIER[modelId] ?? DEFAULT_TIER;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EXPORTS
+   ═══════════════════════════════════════════════════════════════ */
+
+module.exports = {
+  PROVIDERS,
+  MODEL_PRIORITY,
+  MODEL_TIER,
+  DEFAULT_TIER,
+  GEMINI_FREE_MODELS,
+  getTier,
+};

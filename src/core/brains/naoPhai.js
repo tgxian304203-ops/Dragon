@@ -1,7 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 NÃO PHẢI — Kiểm TIP + chạy tests verify
-   - JSON mode cho callModel
-   - Không reset excludeModels giữa các lần retry
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
@@ -22,7 +20,12 @@ const MAX_JSON_RETRY = 3;
 function sanitizeJsonText(text) {
   if (!text || typeof text !== 'string') return '';
   let s = text;
-  s = s.replace(/[\u200B-\u200D\uFEFF]/g, '');
+  s = s.replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '');
+  s = s.replace(/^```(?:json|JSON)?\s*/i, '');
+  s = s.replace(/\s*```\s*$/i, '');
+  const first = s.indexOf('{');
+  const last = s.lastIndexOf('}');
+  if (first !== -1 && last > first) s = s.slice(first, last + 1);
   s = s.replace(/,\s*([}\]])/g, '$1');
   s = s.replace(
     /([{,]\s*)([a-zA-Z_\u00C0-\u1EF9][a-zA-Z0-9_\u00C0-\u1EF9]*)\s*:/g,
@@ -34,23 +37,27 @@ function sanitizeJsonText(text) {
 function parseJSONFromModel(raw) {
   if (!raw || typeof raw !== 'string') throw new Error('Output rỗng');
 
-  let text = raw.trim();
-  const block = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (block) text = block[1].trim();
-
+  const text = raw.trim();
   const candidates = [text];
+
+  const noMd = text.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, '$1').trim();
+  if (noMd !== text) candidates.push(noMd);
+
   const first = text.indexOf('{');
   const last = text.lastIndexOf('}');
   if (first !== -1 && last > first) {
-    const sliced = text.slice(first, last + 1);
-    if (sliced !== text) candidates.push(sliced);
+    candidates.push(text.slice(first, last + 1));
   }
+
+  candidates.push(sanitizeJsonText(text));
 
   let lastErr = null;
   for (const cand of candidates) {
+    if (!cand) continue;
     try { return JSON.parse(cand); } catch (err) { lastErr = err; }
-    try { return JSON.parse(sanitizeJsonText(cand)); } catch (err) { lastErr = err; }
   }
+
+  logger.warn(`❌ Não phải parse JSON fail. Raw (300 ký tự đầu): ${text.slice(0, 300)}`);
   throw new Error(`Không parse được JSON: ${lastErr?.message || 'unknown'}`);
 }
 
@@ -89,22 +96,22 @@ function normalizeEvaluation(raw) {
   const needWebSearch = raw.needWebSearch === true;
   const searchQuery = typeof raw.searchQuery === 'string' ? raw.searchQuery.trim() : '';
 
-  const needSupplement = missingFields.length > 0;
-
-  return { missingFields, reason, numericTest, issues, suggestions, needSupplement, needWebSearch, searchQuery };
+  return {
+    missingFields, reason, numericTest, issues, suggestions,
+    needSupplement: missingFields.length > 0,
+    needWebSearch, searchQuery,
+  };
 }
 
 function runTests(tip) {
   if (!Array.isArray(tip.tests) || tip.tests.length === 0) {
     return { allPass: true, results: [] };
   }
-
   if (tip.logicType !== 'expr' || !tip.logicValue) {
     return { allPass: true, results: [], skipped: true };
   }
 
   const results = [];
-
   for (const tc of tip.tests) {
     try {
       const scope = {};
@@ -112,16 +119,13 @@ function runTests(tip) {
         const num = Number(v);
         scope[k] = Number.isNaN(num) ? v : num;
       }
-
       const got = evaluate(tip.logicValue, scope);
       const pass = got == tc.expected;
-
       results.push({ input: tc.input, expected: tc.expected, got, pass });
     } catch (err) {
       results.push({ input: tc.input, expected: tc.expected, got: null, pass: false, error: err.message });
     }
   }
-
   return { allPass: results.every((r) => r.pass), results };
 }
 
@@ -154,7 +158,6 @@ async function goiPhaiVaParse({ owner, messages, tempKeys, label }) {
     try {
       const rawObj = parseJSONFromModel(result.text);
       const evaluation = normalizeEvaluation(rawObj);
-
       return {
         evaluation,
         meta: {
@@ -187,7 +190,6 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
 
   if (!testResult.allPass) {
     const failed = testResult.results.filter((r) => !r.pass);
-
     return {
       evaluation: {
         missingFields: [],
@@ -215,7 +217,6 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
   }
 
   const userMessage = naoPhaiPrompt.buildUserMessage({ tip, originalProblem });
-
   const messages = [
     { role: 'system', content: naoPhaiPrompt.SYSTEM_PROMPT },
     { role: 'user', content: userMessage },
@@ -243,10 +244,7 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
         owner, messages: messages2, tempKeys, label: '🧠 Não phải (web)',
       });
 
-      return {
-        evaluation: evaluation2,
-        meta: { ...meta2, webVerified: true, testResult },
-      };
+      return { evaluation: evaluation2, meta: { ...meta2, webVerified: true, testResult } };
     } catch (err) {
       logger.warn(`Web verify lỗi: ${err.message}`);
     }
