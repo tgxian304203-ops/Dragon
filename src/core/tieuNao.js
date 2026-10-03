@@ -1,8 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 TIỂU NÃO — Match pattern + chạy logic (không cần model)
+   🧠 TIỂU NÃO — Match pattern → chạy machineEngine (không model)
    ═══════════════════════════════════════════════════════════════ */
 
-const { matchPattern, runLogic, formatOutput } = require('./logicRunner');
+const { matchPattern } = require('./logicRunner');
+const { runTIP } = require('./machineEngine');
 const logger = require('../utils/logger');
 
 async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
@@ -14,42 +15,42 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
   // ═══ BƯỚC 1: Match pattern ═══
   const hasPatterns = Array.isArray(tip.patterns) && tip.patterns.length > 0;
 
-  if (hasPatterns && tip.logicType && tip.logicValue) {
+  if (hasPatterns) {
     const vars = matchPattern(tip.patterns, problem);
 
     if (vars) {
       logger.info(`🎯 Match pattern — vars=${JSON.stringify(vars)}`);
 
-      // ═══ BƯỚC 2: Chạy logic ═══
-      const result = runLogic({
-        logicType: tip.logicType,
-        logicValue: tip.logicValue,
-        vars,
-      });
+      // ═══ BƯỚC 2: Chạy machineEngine ═══
+      if (tip.logicType === 'machine' || tip.thuatToan || tip.cayQuyetDinh) {
+        const result = runTIP(tip, vars);
 
-      if (result.success) {
-        // ═══ BƯỚC 3: Format output ═══
-        const answer = formatOutput(tip.outputTpl, vars, result.kq);
+        logger.debug(`Engine result: success=${result.success}, verified=${result.verified}, kq=${result.kq}`);
 
-        logger.success(`✅ Tiểu não tự tính: ${String(answer).slice(0, 80)}`);
+        if (result.success) {
+          // Format output
+          const answer = formatOutput(tip.outputTpl, vars, result.kq);
 
-        return {
-          answer,
-          type: result.isCode ? 'code' : (result.isPatch ? 'patch' : 'no_code'),
-          code: result.isCode ? result.kq : null,
-          language: result.isCode ? detectLangFromCode(result.kq) : null,
-          meta: {
-            tipId: tip._id?.toString() || null,
-            matched: true,
-            vars,
-            logicType: tip.logicType,
-          },
-        };
+          logger.success(`✅ Tiểu não tự tính: ${String(answer).slice(0, 80)}`);
+
+          return {
+            answer,
+            type: 'no_code',
+            meta: {
+              tipId: tip._id?.toString() || null,
+              matched: true,
+              vars,
+              kq: result.kq,
+              verified: result.verified,
+              steps: result.steps?.length || 0,
+            },
+          };
+        }
+
+        logger.warn(`Engine fail: ${result.error}`);
       }
-
-      logger.warn(`Match pattern nhưng chạy logic lỗi: ${result.error}`);
     } else {
-      logger.debug(`Không match pattern nào trong TIP`);
+      logger.debug(`Không match pattern nào`);
     }
   }
 
@@ -64,33 +65,125 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
   };
 }
 
+/**
+ * Format output theo template
+ */
+function formatOutput(tpl, vars, kq) {
+  if (!tpl) return String(kq);
+
+  let out = String(tpl);
+
+  for (const [k, v] of Object.entries(vars || {})) {
+    out = out.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
+  }
+
+  out = out.replace(/\{kq\}/g, String(kq));
+
+  return out;
+}
+
+/**
+ * Format TIP đầy đủ khi không match — hiển thị 14 trường
+ */
 function formatTIPDayDu(tip) {
   const parts = [];
 
-  parts.push(`📌 **Nguyên lý:**\n${tip.nguyenLy || '(chưa có)'}`);
-  if (tip.quyTac) parts.push(`\n📏 **Quy tắc:**\n${tip.quyTac}`);
-  if (tip.dieuKien) parts.push(`\n🔗 **Điều kiện:**\n${tip.dieuKien}`);
-  if (tip.cayQuyetDinh) parts.push(`\n🌳 **Cây quyết định:**\n${tip.cayQuyetDinh}`);
-  if (tip.phuongPhap) parts.push(`\n🛠️ **Phương pháp:**\n${tip.phuongPhap}`);
-  if (tip.thuatToan) parts.push(`\n⚙️ **Thuật toán:**\n${tip.thuatToan}`);
-  if (tip.workflow) parts.push(`\n🔄 **Workflow:**\n${tip.workflow}`);
-  if (tip.suyLuan) parts.push(`\n🧠 **Suy luận:**\n${tip.suyLuan}`);
-  if (tip.testCase) parts.push(`\n🧪 **Test case:**\n${tip.testCase}`);
-  if (tip.kiemChung) parts.push(`\n🔍 **Kiểm chứng:**\n${tip.kiemChung}`);
-  if (tip.ngoaiLe) parts.push(`\n⚠️ **Ngoại lệ:**\n${tip.ngoaiLe}`);
-  if (tip.caseKinhNghiem) parts.push(`\n💡 **Case:**\n${tip.caseKinhNghiem}`);
-  if (tip.nguonPhienBan) parts.push(`\n📚 **Nguồn:** ${tip.nguonPhienBan}`);
+  // Nguyên lý
+  if (tip.nguyenLy) {
+    parts.push(`📌 **Nguyên lý:**\n${tip.nguyenLy}`);
+  }
+
+  // Quy tắc
+  if (Array.isArray(tip.quyTac) && tip.quyTac.length > 0) {
+    parts.push(`\n📏 **Quy tắc:**`);
+    tip.quyTac.forEach((q, i) => parts.push(`${i + 1}. ${q}`));
+  }
+
+  // Điều kiện
+  if (Array.isArray(tip.dieuKien) && tip.dieuKien.length > 0) {
+    parts.push(`\n🔗 **Điều kiện:**`);
+    tip.dieuKien.forEach((d) => parts.push(`- ${d.var} ${d.op} ${d.value}`));
+  }
+
+  // Cây quyết định
+  if (tip.cayQuyetDinh) {
+    parts.push(`\n🌳 **Cây quyết định:**`);
+    parts.push(`- Nếu: ${tip.cayQuyetDinh.if || '?'}`);
+    if (tip.cayQuyetDinh.then) {
+      parts.push(`  → ${tip.cayQuyetDinh.then.action || '?'}`);
+    }
+    if (tip.cayQuyetDinh.else) {
+      parts.push(`- Ngược lại: ${tip.cayQuyetDinh.else.action || '?'}`);
+    }
+  }
+
+  // Phương pháp
+  if (tip.phuongPhap) {
+    parts.push(`\n🛠️ **Phương pháp:**\n${tip.phuongPhap}`);
+  }
+
+  // Thuật toán
+  if (Array.isArray(tip.thuatToan) && tip.thuatToan.length > 0) {
+    parts.push(`\n⚙️ **Thuật toán:**`);
+    tip.thuatToan.forEach((s) => {
+      const desc = s.op === 'compute' ? `Tính ${s.expr}` :
+                   s.op === 'check' ? `Kiểm ${s.cond}` :
+                   s.op === 'return' ? `Trả ${s.var || s.value || 'kq'}` :
+                   s.op;
+      parts.push(`Bước ${s.step}: ${desc}`);
+    });
+  }
+
+  // Workflow
+  if (tip.workflow) {
+    parts.push(`\n🔄 **Workflow:**`);
+    if (tip.workflow.input) parts.push(`- Input: ${tip.workflow.input.join(', ')}`);
+    if (tip.workflow.process) parts.push(`- Xử lý: ${tip.workflow.process.join(' → ')}`);
+    if (tip.workflow.output) parts.push(`- Output: ${tip.workflow.output}`);
+  }
+
+  // Suy luận
+  if (Array.isArray(tip.suyLuan) && tip.suyLuan.length > 0) {
+    parts.push(`\n🧠 **Suy luận:**`);
+    tip.suyLuan.forEach((s) => parts.push(`- ${s}`));
+  }
+
+  // Test case
+  if (Array.isArray(tip.testCase) && tip.testCase.length > 0) {
+    parts.push(`\n🧪 **Test case:**`);
+    tip.testCase.forEach((tc) => {
+      parts.push(`- ${JSON.stringify(tc.input)} → ${tc.expected}`);
+    });
+  }
+
+  // Kiểm chứng
+  if (tip.kiemChung && tip.kiemChung.expr) {
+    parts.push(`\n🔍 **Kiểm chứng:** ${tip.kiemChung.expr}`);
+  }
+
+  // Ngoại lệ
+  if (Array.isArray(tip.ngoaiLe) && tip.ngoaiLe.length > 0) {
+    parts.push(`\n⚠️ **Ngoại lệ:**`);
+    tip.ngoaiLe.forEach((e) => parts.push(`- Khi ${e.when}: ${e.msg}`));
+  }
+
+  // Case
+  if (Array.isArray(tip.caseKinhNghiem) && tip.caseKinhNghiem.length > 0) {
+    parts.push(`\n💡 **Case:**`);
+    tip.caseKinhNghiem.forEach((c) => parts.push(`- ${c}`));
+  }
+
+  // Quan hệ
+  if (Array.isArray(tip.quanHe) && tip.quanHe.length > 0) {
+    parts.push(`\n🔗 **Quan hệ:** ${tip.quanHe.join(', ')}`);
+  }
+
+  // Nguồn
+  if (tip.nguonPhienBan) {
+    parts.push(`\n📚 **Nguồn:** ${tip.nguonPhienBan}`);
+  }
 
   return parts.join('\n');
 }
 
-function detectLangFromCode(code) {
-  if (!code) return 'python';
-  if (/^\s*def\s+\w+\s*\(|print\s*\(/m.test(code)) return 'python';
-  if (/^\s*function\s+\w+\s*\(|console\.log/m.test(code)) return 'javascript';
-  if (/^\s*public\s+class|System\.out\.println/m.test(code)) return 'java';
-  if (/^\s*#include|int\s+main\s*\(/m.test(code)) return 'cpp';
-  return 'python';
-}
-
-module.exports = { xuLy, formatTIPDayDu };
+module.exports = { xuLy, formatTIPDayDu, formatOutput };

@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 NÃO TRÁI — Normalize thêm patterns/logic/outputTpl
+   🧠 NÃO TRÁI — normalize 14 trường JSON + 4 trường máy
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
@@ -14,7 +14,7 @@ const FIELDS_14 = [
 ];
 
 const VALID_CATEGORIES = ['math', 'code', 'bugfix', 'explain', 'general'];
-const VALID_LOGIC_TYPES = ['expr', 'code', 'patch', ''];
+const VALID_LOGIC_TYPES = ['expr', 'code', 'patch', 'machine', ''];
 
 function parseJSONFromModel(raw) {
   if (!raw || typeof raw !== 'string') throw new Error('Output rỗng');
@@ -37,29 +37,104 @@ function parseJSONFromModel(raw) {
   }
 }
 
+/**
+ * Chuẩn hóa từng trường
+ */
 function normalizeTIP(raw) {
   const tip = {};
-  for (const field of FIELDS_14) {
-    const value = raw[field];
-    if (field === 'quanHe') {
-      if (Array.isArray(value)) {
-        tip[field] = value.filter((v) => typeof v === 'string' && v.trim());
-      } else if (typeof value === 'string' && value.trim()) {
-        tip[field] = value.split(',').map((s) => s.trim()).filter(Boolean);
-      } else {
-        tip[field] = [];
-      }
-    } else {
-      tip[field] = typeof value === 'string' ? value.trim() : (value != null ? String(value) : '');
-    }
-  }
 
-  // Category
+  // nguyenLy — string
+  tip.nguyenLy = typeof raw.nguyenLy === 'string' ? raw.nguyenLy.trim() : String(raw.nguyenLy || '');
+
+  // quyTac — mảng string
+  tip.quyTac = Array.isArray(raw.quyTac)
+    ? raw.quyTac.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim())
+    : (typeof raw.quyTac === 'string' && raw.quyTac.trim() ? [raw.quyTac.trim()] : []);
+
+  // dieuKien — mảng object {var, op, value}
+  tip.dieuKien = Array.isArray(raw.dieuKien)
+    ? raw.dieuKien
+        .filter((d) => d && typeof d === 'object' && d.var && d.op)
+        .map((d) => ({
+          var: String(d.var),
+          op: String(d.op),
+          value: d.value,
+        }))
+    : [];
+
+  // cayQuyetDinh — object
+  tip.cayQuyetDinh = (raw.cayQuyetDinh && typeof raw.cayQuyetDinh === 'object')
+    ? raw.cayQuyetDinh
+    : null;
+
+  // phuongPhap — string
+  tip.phuongPhap = typeof raw.phuongPhap === 'string' ? raw.phuongPhap.trim() : '';
+
+  // thuatToan — mảng object {step, op, ...}
+  tip.thuatToan = Array.isArray(raw.thuatToan)
+    ? raw.thuatToan
+        .filter((s) => s && typeof s === 'object' && s.op)
+        .map((s, i) => ({
+          step: Number.isFinite(s.step) ? s.step : i + 1,
+          op: String(s.op),
+          ...s,
+        }))
+    : [];
+
+  // workflow — object
+  tip.workflow = (raw.workflow && typeof raw.workflow === 'object')
+    ? raw.workflow
+    : null;
+
+  // suyLuan — mảng string
+  tip.suyLuan = Array.isArray(raw.suyLuan)
+    ? raw.suyLuan.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim())
+    : (typeof raw.suyLuan === 'string' && raw.suyLuan.trim() ? [raw.suyLuan.trim()] : []);
+
+  // testCase — mảng object {input, expected}
+  tip.testCase = Array.isArray(raw.testCase)
+    ? raw.testCase
+        .filter((t) => t && typeof t === 'object' && t.input)
+        .map((t) => ({
+          input: t.input,
+          expected: t.expected,
+        }))
+    : [];
+
+  // kiemChung — object
+  tip.kiemChung = (raw.kiemChung && typeof raw.kiemChung === 'object')
+    ? raw.kiemChung
+    : null;
+
+  // ngoaiLe — mảng object {when, action, msg}
+  tip.ngoaiLe = Array.isArray(raw.ngoaiLe)
+    ? raw.ngoaiLe
+        .filter((e) => e && typeof e === 'object')
+        .map((e) => ({
+          when: String(e.when || ''),
+          action: String(e.action || 'error'),
+          msg: String(e.msg || ''),
+        }))
+    : [];
+
+  // caseKinhNghiem — mảng string
+  tip.caseKinhNghiem = Array.isArray(raw.caseKinhNghiem)
+    ? raw.caseKinhNghiem.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim())
+    : (typeof raw.caseKinhNghiem === 'string' && raw.caseKinhNghiem.trim() ? [raw.caseKinhNghiem.trim()] : []);
+
+  // quanHe — mảng string
+  tip.quanHe = Array.isArray(raw.quanHe)
+    ? raw.quanHe.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim())
+    : [];
+
+  // nguonPhienBan — string
+  tip.nguonPhienBan = typeof raw.nguonPhienBan === 'string' ? raw.nguonPhienBan.trim() : '';
+
+  // ═══ Metadata ═══
   let category = String(raw.category || '').toLowerCase().trim();
   if (!VALID_CATEGORIES.includes(category)) category = 'general';
   tip.category = category;
 
-  // Keywords
   tip.keywords = Array.isArray(raw.keywords)
     ? raw.keywords
         .filter((k) => typeof k === 'string' && k.trim().length >= 2)
@@ -67,7 +142,7 @@ function normalizeTIP(raw) {
         .slice(0, 20)
     : [];
 
-  // Patterns
+  // ═══ 4 trường máy ═══
   tip.patterns = Array.isArray(raw.patterns)
     ? raw.patterns
         .filter((p) => typeof p === 'string' && p.trim().length >= 3)
@@ -75,15 +150,11 @@ function normalizeTIP(raw) {
         .slice(0, 10)
     : [];
 
-  // Logic type
   let logicType = String(raw.logicType || '').toLowerCase().trim();
   if (!VALID_LOGIC_TYPES.includes(logicType)) logicType = '';
   tip.logicType = logicType;
 
-  // Logic value
   tip.logicValue = typeof raw.logicValue === 'string' ? raw.logicValue.trim() : '';
-
-  // Output template
   tip.outputTpl = typeof raw.outputTpl === 'string' ? raw.outputTpl.trim() : '';
 
   tip.qualityScore = Number.isFinite(raw.qualityScore)
@@ -115,7 +186,7 @@ async function phanTich({ problem, context = '', relatedTIPs = [], webResults = 
     userId: owner.userId,
     guestSessionId: owner.guestSessionId,
     messages,
-    options: { temperature: 0.4, maxTokens: 4096 },
+    options: { temperature: 0.3, maxTokens: 4096 },
     tempKeys,
   });
 
@@ -128,7 +199,8 @@ async function phanTich({ problem, context = '', relatedTIPs = [], webResults = 
 
   logger.success(
     `🧠 Não trái xong: ${result.provider}/${result.modelId} [${tip.category}] ` +
-    `patterns=${tip.patterns.length}, logicType=${tip.logicType}`
+    `patterns=${tip.patterns.length}, logicType=${tip.logicType}, ` +
+    `thuatToan=${tip.thuatToan.length} bước, testCase=${tip.testCase.length}`
   );
 
   return {
@@ -144,19 +216,22 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner, te
   const parts = [];
   parts.push(`📌 VẤN ĐỀ GỐC:\n${problem}`);
   parts.push(`\n📦 TIP HIỆN TẠI:`);
+
   for (const field of FIELDS_14) {
     const v = tip[field];
-    if (Array.isArray(v)) parts.push(`- ${field}: ${v.length > 0 ? v.join(', ') : '(TRỐNG)'}`);
-    else parts.push(`- ${field}: ${v || '(TRỐNG)'}`);
+    if (Array.isArray(v) || (v && typeof v === 'object')) {
+      parts.push(`- ${field}: ${JSON.stringify(v)}`);
+    } else {
+      parts.push(`- ${field}: ${v || '(TRỐNG)'}`);
+    }
   }
   parts.push(`- category: ${tip.category || '(TRỐNG)'}`);
   parts.push(`- patterns: ${(tip.patterns || []).join(' | ') || '(TRỐNG)'}`);
   parts.push(`- logicType: ${tip.logicType || '(TRỐNG)'}`);
-  parts.push(`- logicValue: ${tip.logicValue || '(TRỐNG)'}`);
   parts.push(`- outputTpl: ${tip.outputTpl || '(TRỐNG)'}`);
 
   parts.push(`\n⚠️ TRƯỜNG CẦN BỔ SUNG: ${missingFields.join(', ')}`);
-  parts.push(`\n🎯 Trả JSON đầy đủ + 4 trường patterns, logicType, logicValue, outputTpl.`);
+  parts.push(`\n🎯 Trả JSON đầy đủ theo schema. logicType="machine".`);
   parts.push(`\nChỉ trả JSON, không markdown.`);
 
   const messages = [
@@ -171,7 +246,7 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner, te
     userId: owner.userId,
     guestSessionId: owner.guestSessionId,
     messages,
-    options: { temperature: 0.4, maxTokens: 4096 },
+    options: { temperature: 0.3, maxTokens: 4096 },
     tempKeys,
   });
 
@@ -188,4 +263,7 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner, te
   };
 }
 
-module.exports = { phanTich, boSung, parseJSONFromModel, normalizeTIP, FIELDS_14, VALID_CATEGORIES, VALID_LOGIC_TYPES };
+module.exports = {
+  phanTich, boSung, parseJSONFromModel, normalizeTIP,
+  FIELDS_14, VALID_CATEGORIES, VALID_LOGIC_TYPES,
+};

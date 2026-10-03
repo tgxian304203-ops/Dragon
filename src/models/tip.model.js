@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   📚 TIP — Kho 2 (K2a, K2b) — 14 trường + patterns + logic
+   📚 TIP — Kho 2 — 14 trường JSON structured + 4 trường máy
    ═══════════════════════════════════════════════════════════════ */
 
 const mongoose = require('mongoose');
@@ -7,50 +7,43 @@ const { getDB2 } = require('../config/db2');
 
 const tipSchema = new mongoose.Schema(
   {
-    // 14 trường chính
-    nguyenLy:       { type: String, required: true, default: '', maxlength: 100000 },
-    quyTac:         { type: String, default: '', maxlength: 100000 },
-    dieuKien:       { type: String, default: '', maxlength: 100000 },
-    cayQuyetDinh:   { type: String, default: '', maxlength: 100000 },
-    phuongPhap:     { type: String, default: '', maxlength: 100000 },
-    thuatToan:      { type: String, default: '', maxlength: 100000 },
-    workflow:       { type: String, default: '', maxlength: 100000 },
-    suyLuan:        { type: String, default: '', maxlength: 100000 },
-    testCase:       { type: String, default: '', maxlength: 100000 },
-    kiemChung:      { type: String, default: '', maxlength: 100000 },
-    ngoaiLe:        { type: String, default: '', maxlength: 100000 },
-    caseKinhNghiem: { type: String, default: '', maxlength: 100000 },
-    quanHe:         { type: [String], default: [] },
-    nguonPhienBan:  { type: String, default: '', maxlength: 10000 },
+    // ═══ 14 TRƯỜNG — Mixed (chấp nhận string hoặc JSON) ═══
+    nguyenLy:       { type: mongoose.Schema.Types.Mixed, default: '' },       // string
+    quyTac:         { type: mongoose.Schema.Types.Mixed, default: [] },       // [string]
+    dieuKien:       { type: mongoose.Schema.Types.Mixed, default: [] },       // [{var, op, value}]
+    cayQuyetDinh:   { type: mongoose.Schema.Types.Mixed, default: null },     // {if, then, elseIf, else}
+    phuongPhap:     { type: mongoose.Schema.Types.Mixed, default: '' },       // string
+    thuatToan:      { type: mongoose.Schema.Types.Mixed, default: [] },       // [{step, op, ...}]
+    workflow:       { type: mongoose.Schema.Types.Mixed, default: null },     // {input, process, output}
+    suyLuan:        { type: mongoose.Schema.Types.Mixed, default: [] },       // [string]
+    testCase:       { type: mongoose.Schema.Types.Mixed, default: [] },       // [{input, expected}]
+    kiemChung:      { type: mongoose.Schema.Types.Mixed, default: null },     // {type, expr}
+    ngoaiLe:        { type: mongoose.Schema.Types.Mixed, default: [] },       // [{when, action, msg}]
+    caseKinhNghiem: { type: mongoose.Schema.Types.Mixed, default: [] },       // [string]
+    quanHe:         { type: [String], default: [] },                          // [string]
+    nguonPhienBan:  { type: String, default: '', maxlength: 10000 },          // string
 
-    // Metadata
+    // ═══ Metadata ═══
     category: { type: String, default: 'general' },
     keywords: { type: [String], default: [] },
     qualityScore: { type: Number, default: 0, min: 0, max: 100 },
 
-    // ═══ 4 TRƯỜNG MỚI — cho Tiểu não tự chạy ═══
-    patterns: { type: [String], default: [] },    // mẫu câu hỏi
+    // ═══ 4 TRƯỜNG MÁY — để chạy nhanh ═══
+    patterns: { type: [String], default: [] },
     logicType: {
       type: String,
-      enum: ['expr', 'code', 'patch', ''],
+      enum: ['expr', 'code', 'patch', 'machine', ''],
       default: '',
     },
-    logicValue: { type: String, default: '', maxlength: 100000 },
+    logicValue: { type: mongoose.Schema.Types.Mixed, default: '' },
     outputTpl: { type: String, default: '', maxlength: 10000 },
   },
-  { timestamps: true, collection: 'tips' }
+  { timestamps: true, collection: 'tips', strict: false }
 );
 
 tipSchema.index({ keywords: 1 });
 tipSchema.index({ category: 1 });
 tipSchema.index({ createdAt: -1 });
-
-tipSchema.pre('save', function (next) {
-  if (!this.nguyenLy || this.nguyenLy.trim() === '') {
-    return next(new Error('TIP phải có "nguyenLy" không rỗng'));
-  }
-  next();
-});
 
 let TipModel = null;
 

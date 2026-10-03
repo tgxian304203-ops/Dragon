@@ -1,12 +1,19 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 NÃO PHẢI — Kiểm TIP + Xác minh Web khi cần (NP17)
+   🧠 NÃO PHẢI — Kiểm TIP JSON + verify bằng machineEngine
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
 const naoPhaiPrompt = require('./prompts/naoPhai.prompt');
-const { FIELDS_14 } = require('./naoTrai');
 const { webSearch, formatForPrompt } = require('../webSearch');
+const { testTIP } = require('../machineEngine');
 const logger = require('../../utils/logger');
+
+const FIELDS_14 = [
+  'nguyenLy', 'quyTac', 'dieuKien', 'cayQuyetDinh',
+  'phuongPhap', 'thuatToan', 'workflow', 'suyLuan',
+  'testCase', 'kiemChung', 'ngoaiLe', 'caseKinhNghiem',
+  'quanHe', 'nguonPhienBan',
+];
 
 function parseJSONFromModel(raw) {
   if (!raw || typeof raw !== 'string') throw new Error('Output rỗng');
@@ -29,6 +36,9 @@ function parseJSONFromModel(raw) {
   }
 }
 
+/**
+ * Chuẩn hóa kết quả Não phải trả về
+ */
 function normalizeEvaluation(raw) {
   const missingFields = Array.isArray(raw.missingFields)
     ? raw.missingFields
@@ -66,14 +76,69 @@ function normalizeEvaluation(raw) {
 
   const needSupplement = missingFields.length > 0;
 
-  return { missingFields, reason, numericTest, issues, suggestions, needSupplement, needWebSearch, searchQuery };
+  return {
+    missingFields, reason, numericTest, issues, suggestions,
+    needSupplement, needWebSearch, searchQuery,
+  };
 }
 
-async function kiemChung({ tip, originalProblem = '', owner }) {
-  if (!tip || typeof tip !== 'object') throw new Error('TIP không hợp lệ');
-  if (!tip.nguyenLy || tip.nguyenLy.trim() === '') throw new Error('TIP thiếu nguyenLy');
-  if (!owner || (!owner.userId && !owner.guestSessionId)) throw new Error('Thiếu owner');
+/**
+ * Chạy machine engine test để kiểm TIP có hoạt động không
+ */
+function verifyByEngine(tip) {
+  try {
+    const r = testTIP(tip);
+    return r;
+  } catch (err) {
+    logger.warn(`Engine verify lỗi: ${err.message}`);
+    return { allPass: false, results: [], error: err.message };
+  }
+}
 
+async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) {
+  if (!tip || typeof tip !== 'object') throw new Error('TIP không hợp lệ');
+  if (!tip.nguyenLy) throw new Error('TIP thiếu nguyenLy');
+
+  // ═══ BƯỚC 1: Chạy engine test trước ═══
+  const engineResult = verifyByEngine(tip);
+  logger.debug(`Engine test: allPass=${engineResult.allPass}, cases=${engineResult.results.length}`);
+
+  // Nếu engine test fail → báo luôn, không cần gọi Não phải
+  if (engineResult.results.length > 0 && !engineResult.allPass) {
+    const failed = engineResult.results.filter((r) => !r.pass);
+    logger.warn(`Engine test fail ${failed.length}/${engineResult.results.length} case`);
+
+    const numericTest = {
+      example: `Engine test: ${JSON.stringify(failed[0].input)}`,
+      calculation: `Kỳ vọng ${failed[0].expected}, nhận ${failed[0].got}`,
+      expected: String(failed[0].expected),
+      actual: String(failed[0].got),
+      match: false,
+    };
+
+    const issues = failed.map((f) => ({
+      field: 'testCase',
+      problem: `Input ${JSON.stringify(f.input)} → kỳ vọng ${f.expected}, nhận ${f.got}`,
+      severity: 'high',
+    }));
+
+    return {
+      evaluation: {
+        missingFields: [],
+        reason: 'Engine test case fail',
+        numericTest,
+        issues,
+        suggestions: ['Sửa thuatToan/cayQuyetDinh để test case pass'],
+        needSupplement: false,
+        needWebSearch: false,
+        searchQuery: '',
+        engineFailed: true,
+      },
+      meta: { provider: 'engine', engineResult },
+    };
+  }
+
+  // ═══ BƯỚC 2: Gọi Não phải kiểm schema ═══
   const userMessage = naoPhaiPrompt.buildUserMessage({ tip, originalProblem });
 
   const messages = [
@@ -81,7 +146,7 @@ async function kiemChung({ tip, originalProblem = '', owner }) {
     { role: 'user', content: userMessage },
   ];
 
-  logger.info(`🧠 Não phải kiểm: "${tip.nguyenLy.slice(0, 60)}..."`);
+  logger.info(`🧠 Não phải kiểm: "${String(tip.nguyenLy).slice(0, 60)}..."`);
 
   const result = await callModel({
     side: 'right',
@@ -89,13 +154,15 @@ async function kiemChung({ tip, originalProblem = '', owner }) {
     guestSessionId: owner.guestSessionId,
     messages,
     options: { temperature: 0.3, maxTokens: 2048 },
+    tempKeys,
   });
 
   const rawObj = parseJSONFromModel(result.text);
   let evaluation = normalizeEvaluation(rawObj);
 
+  // ═══ BƯỚC 3: Nếu Não phải yêu cầu tra Web ═══
   if (evaluation.needWebSearch && evaluation.searchQuery) {
-    logger.info(`🌐 Não phải yêu cầu xác minh Web: "${evaluation.searchQuery}"`);
+    logger.info(`🌐 Não phải xác minh Web: "${evaluation.searchQuery}"`);
 
     try {
       const searchResult = await webSearch(evaluation.searchQuery);
@@ -105,7 +172,7 @@ async function kiemChung({ tip, originalProblem = '', owner }) {
         { role: 'system', content: naoPhaiPrompt.SYSTEM_PROMPT },
         { role: 'user', content: userMessage },
         { role: 'assistant', content: result.text },
-        { role: 'user', content: `🌐 KẾT QUẢ TÌM KIẾM ĐỂ XÁC MINH:\n${webText}\n\nHãy kiểm lại TIP với thông tin web trên và trả JSON cuối cùng (không cần needWebSearch nữa).` },
+        { role: 'user', content: `🌐 KẾT QUẢ TÌM KIẾM:\n${webText}\n\nKiểm lại TIP và trả JSON cuối.` },
       ];
 
       const result2 = await callModel({
@@ -114,12 +181,11 @@ async function kiemChung({ tip, originalProblem = '', owner }) {
         guestSessionId: owner.guestSessionId,
         messages: messages2,
         options: { temperature: 0.3, maxTokens: 2048 },
+        tempKeys,
       });
 
       const rawObj2 = parseJSONFromModel(result2.text);
       evaluation = normalizeEvaluation(rawObj2);
-
-      logger.success(`🌐 Não phải đã xác minh Web xong`);
 
       return {
         evaluation,
@@ -129,15 +195,17 @@ async function kiemChung({ tip, originalProblem = '', owner }) {
           keyId: result2.keyId,
           usage: result2.usage,
           webVerified: true,
+          engineResult,
         },
       };
     } catch (err) {
-      logger.warn(`Não phải xác minh Web lỗi: ${err.message} → dùng kết quả gốc`);
+      logger.warn(`Web verify lỗi: ${err.message} → dùng gốc`);
     }
   }
 
   logger.success(
-    `🧠 Não phải: missing=[${evaluation.missingFields.join(',')}], match=${evaluation.numericTest.match}`
+    `🧠 Não phải: missing=[${evaluation.missingFields.join(',')}], ` +
+    `match=${evaluation.numericTest.match}, enginePass=${engineResult.allPass}`
   );
 
   return {
@@ -147,8 +215,14 @@ async function kiemChung({ tip, originalProblem = '', owner }) {
       modelId: result.modelId,
       keyId: result.keyId,
       usage: result.usage,
+      engineResult,
     },
   };
 }
 
-module.exports = { kiemChung, parseJSONFromModel, normalizeEvaluation };
+module.exports = {
+  kiemChung,
+  parseJSONFromModel,
+  normalizeEvaluation,
+  verifyByEngine,
+};
