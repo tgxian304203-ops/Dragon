@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   🎯 CHỌN MODEL — sắp xếp provider theo quota còn lại
+   🎯 CHỌN MODEL — sắp xếp provider theo quota hiệu dụng
    ═══════════════════════════════════════════════════════════════ */
 
 const { sortByPriority } = require('./modelPriority');
@@ -14,7 +14,7 @@ function groupModelsByKeys(keys) {
       modelMap[m].push({
         keyId: key._id,
         provider: key.provider,
-        quotaPercent: key.quotaPercent ?? 100,
+        quotaPercent: key._quotaHieuDung ?? key.quotaPercent ?? 100,
       });
     }
   }
@@ -22,7 +22,7 @@ function groupModelsByKeys(keys) {
   return modelMap;
 }
 
-function pickNextModel(provider, keys, triedModels = new Set()) {
+function pickNextModel(provider, keys, triedModels = new Set(), quotaTracker = null) {
   const modelMap = groupModelsByKeys(keys);
   const sorted = sortByPriority(provider, Object.keys(modelMap));
 
@@ -48,23 +48,26 @@ function groupKeysByProvider(keys) {
 }
 
 /**
- * Sắp xếp provider theo quota trung bình còn lại (giảm dần).
- * Provider hết quota (avg=0) sẽ đứng cuối.
+ * Sắp xếp provider theo quota trung bình (đã xét TTL) — giảm dần.
  */
-function getProviderOrder(keysByProvider) {
+function getProviderOrder(keysByProvider, quotaTracker = null) {
   const providers = [];
 
   for (const p of ['gemini', 'groq', 'openrouter']) {
     const keys = keysByProvider[p];
     if (!keys || keys.length === 0) continue;
 
-    const avgQuota =
-      keys.reduce((sum, k) => sum + (k.quotaPercent ?? 100), 0) / keys.length;
+    let avgQuota;
+    if (quotaTracker && typeof quotaTracker.layQuotaHieuDung === 'function') {
+      avgQuota =
+        keys.reduce((sum, k) => sum + quotaTracker.layQuotaHieuDung(k), 0) / keys.length;
+    } else {
+      avgQuota = keys.reduce((sum, k) => sum + (k.quotaPercent ?? 100), 0) / keys.length;
+    }
 
     providers.push({ provider: p, avgQuota });
   }
 
-  // Sắp xếp giảm dần theo quota
   providers.sort((a, b) => b.avgQuota - a.avgQuota);
 
   return providers.map((x) => x.provider);

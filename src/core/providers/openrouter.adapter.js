@@ -1,5 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    🌐 OPENROUTER ADAPTER — OpenAI-compatible
+   - chat(): hỗ trợ JSON mode qua options.responseFormat='json'
    ═══════════════════════════════════════════════════════════════ */
 
 const { PROVIDERS } = require('../../config/providers');
@@ -46,21 +47,28 @@ async function listModels(apiKey) {
 async function chat(apiKey, modelId, messages, options = {}) {
   const url = `${CFG.baseUrl}/chat/completions`;
 
+  const body = {
+    model: modelId,
+    messages,
+    temperature: options.temperature ?? 0.7,
+    max_tokens: options.maxTokens,
+    stream: false,
+  };
+
+  // [MỚI] JSON mode — ép model trả JSON hợp lệ
+  if (options.responseFormat === 'json') {
+    body.response_format = { type: 'json_object' };
+  }
+
   const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: authHeaders(apiKey, { 'Content-Type': 'application/json' }),
-    body: JSON.stringify({
-      model: modelId,
-      messages,
-      temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens,
-      stream: false,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    const err = new Error(`OpenRouter chat ${res.status}: ${body.slice(0, 200)}`);
+    const errBody = await res.text().catch(() => '');
+    const err = new Error(`OpenRouter chat ${res.status}: ${errBody.slice(0, 300)}`);
     err.status = res.status;
     throw err;
   }

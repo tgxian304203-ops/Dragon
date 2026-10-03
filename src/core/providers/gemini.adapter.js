@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    🌐 GEMINI ADAPTER
    - Auth: ?key=API_KEY trong URL
-   - listModels + chat + readImage + readFile
+   - chat(): hỗ trợ JSON mode qua options.responseFormat='json'
    ═══════════════════════════════════════════════════════════════ */
 
 const { PROVIDERS } = require('../../config/providers');
@@ -45,16 +45,20 @@ async function chat(apiKey, modelId, messages, options = {}) {
     parts: [{ text: m.content }],
   }));
 
+  const generationConfig = {
+    temperature: options.temperature ?? 0.7,
+    maxOutputTokens: options.maxTokens,
+  };
+
+  // [MỚI] JSON mode — ép model trả JSON hợp lệ
+  if (options.responseFormat === 'json') {
+    generationConfig.responseMimeType = 'application/json';
+  }
+
   const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents,
-      generationConfig: {
-        temperature: options.temperature ?? 0.7,
-        maxOutputTokens: options.maxTokens,
-      },
-    }),
+    body: JSON.stringify({ contents, generationConfig }),
   });
 
   if (!res.ok) {

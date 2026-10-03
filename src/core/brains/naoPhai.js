@@ -1,5 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 NÃO PHẢI — Kiểm TIP + chạy tests verify
+   - JSON mode cho callModel
+   - Không reset excludeModels giữa các lần retry
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
@@ -15,6 +17,20 @@ const FIELDS_14 = [
   'quanHe', 'nguonPhienBan',
 ];
 
+const MAX_JSON_RETRY = 3;
+
+function sanitizeJsonText(text) {
+  if (!text || typeof text !== 'string') return '';
+  let s = text;
+  s = s.replace(/[\u200B-\u200D\uFEFF]/g, '');
+  s = s.replace(/,\s*([}\]])/g, '$1');
+  s = s.replace(
+    /([{,]\s*)([a-zA-Z_\u00C0-\u1EF9][a-zA-Z0-9_\u00C0-\u1EF9]*)\s*:/g,
+    '$1"$2":'
+  );
+  return s;
+}
+
 function parseJSONFromModel(raw) {
   if (!raw || typeof raw !== 'string') throw new Error('Output rỗng');
 
@@ -22,18 +38,20 @@ function parseJSONFromModel(raw) {
   const block = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
   if (block) text = block[1].trim();
 
-  try {
-    return JSON.parse(text);
-  } catch {
-    const first = text.indexOf('{');
-    const last = text.lastIndexOf('}');
-    if (first !== -1 && last > first) {
-      try { return JSON.parse(text.slice(first, last + 1)); } catch (err) {
-        throw new Error(`Không parse được JSON: ${err.message}`);
-      }
-    }
-    throw new Error('Không tìm thấy JSON');
+  const candidates = [text];
+  const first = text.indexOf('{');
+  const last = text.lastIndexOf('}');
+  if (first !== -1 && last > first) {
+    const sliced = text.slice(first, last + 1);
+    if (sliced !== text) candidates.push(sliced);
   }
+
+  let lastErr = null;
+  for (const cand of candidates) {
+    try { return JSON.parse(cand); } catch (err) { lastErr = err; }
+    try { return JSON.parse(sanitizeJsonText(cand)); } catch (err) { lastErr = err; }
+  }
+  throw new Error(`Không parse được JSON: ${lastErr?.message || 'unknown'}`);
 }
 
 function normalizeEvaluation(raw) {
@@ -76,9 +94,6 @@ function normalizeEvaluation(raw) {
   return { missingFields, reason, numericTest, issues, suggestions, needSupplement, needWebSearch, searchQuery };
 }
 
-/**
- * Chạy thử tests — verify logicValue có đúng không
- */
 function runTests(tip) {
   if (!Array.isArray(tip.tests) || tip.tests.length === 0) {
     return { allPass: true, results: [] };
@@ -101,27 +116,63 @@ function runTests(tip) {
       const got = evaluate(tip.logicValue, scope);
       const pass = got == tc.expected;
 
-      results.push({
-        input: tc.input,
-        expected: tc.expected,
-        got,
-        pass,
-      });
+      results.push({ input: tc.input, expected: tc.expected, got, pass });
     } catch (err) {
-      results.push({
-        input: tc.input,
-        expected: tc.expected,
-        got: null,
-        pass: false,
-        error: err.message,
-      });
+      results.push({ input: tc.input, expected: tc.expected, got: null, pass: false, error: err.message });
     }
   }
 
-  return {
-    allPass: results.every((r) => r.pass),
-    results,
-  };
+  return { allPass: results.every((r) => r.pass), results };
+}
+
+async function goiPhaiVaParse({ owner, messages, tempKeys, label }) {
+  const excludeModels = new Set();
+  let lastErr = null;
+
+  for (let attempt = 1; attempt <= MAX_JSON_RETRY; attempt++) {
+    let result;
+    try {
+      result = await callModel({
+        side: 'right',
+        userId: owner.userId,
+        guestSessionId: owner.guestSessionId,
+        messages,
+        options: {
+          temperature: 0.3,
+          maxTokens: 2048,
+          excludeModels: [...excludeModels],
+          responseFormat: 'json',
+        },
+        tempKeys,
+      });
+    } catch (err) {
+      lastErr = err;
+      logger.error(`${label} — gọi model lỗi lần ${attempt}:`, err.message);
+      continue;
+    }
+
+    try {
+      const rawObj = parseJSONFromModel(result.text);
+      const evaluation = normalizeEvaluation(rawObj);
+
+      return {
+        evaluation,
+        meta: {
+          provider: result.provider,
+          modelId: result.modelId,
+          keyId: result.keyId,
+          usage: result.usage,
+          attempts: attempt,
+        },
+      };
+    } catch (parseErr) {
+      lastErr = parseErr;
+      logger.warn(`${label} — parse JSON lỗi lần ${attempt} (model ${result.provider}/${result.modelId}): ${parseErr.message}`);
+      excludeModels.add(result.modelId);
+    }
+  }
+
+  throw new Error(`${label} thất bại sau ${MAX_JSON_RETRY} lần. Lỗi cuối: ${lastErr?.message || 'unknown'}`);
 }
 
 async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) {
@@ -131,11 +182,9 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
     throw new Error('Thiếu owner');
   }
 
-  // ═══ Chạy tests trước ═══
   const testResult = runTests(tip);
   logger.debug(`Tests: allPass=${testResult.allPass}, cases=${testResult.results.length}`);
 
-  // Nếu tests fail → trả về luôn, không cần gọi Não phải
   if (!testResult.allPass) {
     const failed = testResult.results.filter((r) => !r.pass);
 
@@ -165,7 +214,6 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
     };
   }
 
-  // ═══ Gọi Não phải kiểm bằng model ═══
   const userMessage = naoPhaiPrompt.buildUserMessage({ tip, originalProblem });
 
   const messages = [
@@ -175,19 +223,10 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
 
   logger.info(`🧠 Não phải kiểm: "${tip.nguyenLy.slice(0, 60)}..."`);
 
-  const result = await callModel({
-    side: 'right',
-    userId: owner.userId,
-    guestSessionId: owner.guestSessionId,
-    messages,
-    options: { temperature: 0.3, maxTokens: 2048 },
-    tempKeys,
+  const { evaluation, meta } = await goiPhaiVaParse({
+    owner, messages, tempKeys, label: '🧠 Não phải',
   });
 
-  const rawObj = parseJSONFromModel(result.text);
-  let evaluation = normalizeEvaluation(rawObj);
-
-  // Web verify
   if (evaluation.needWebSearch && evaluation.searchQuery) {
     try {
       const searchResult = await webSearch(evaluation.searchQuery);
@@ -196,32 +235,17 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
       const messages2 = [
         { role: 'system', content: naoPhaiPrompt.SYSTEM_PROMPT },
         { role: 'user', content: userMessage },
-        { role: 'assistant', content: result.text },
+        { role: 'assistant', content: JSON.stringify(evaluation) },
         { role: 'user', content: `🌐 WEB:\n${webText}\n\nKiểm lại TIP và trả JSON cuối.` },
       ];
 
-      const result2 = await callModel({
-        side: 'right',
-        userId: owner.userId,
-        guestSessionId: owner.guestSessionId,
-        messages: messages2,
-        options: { temperature: 0.3, maxTokens: 2048 },
-        tempKeys,
+      const { evaluation: evaluation2, meta: meta2 } = await goiPhaiVaParse({
+        owner, messages: messages2, tempKeys, label: '🧠 Não phải (web)',
       });
 
-      const rawObj2 = parseJSONFromModel(result2.text);
-      evaluation = normalizeEvaluation(rawObj2);
-
       return {
-        evaluation,
-        meta: {
-          provider: result2.provider,
-          modelId: result2.modelId,
-          keyId: result2.keyId,
-          usage: result2.usage,
-          webVerified: true,
-          testResult,
-        },
+        evaluation: evaluation2,
+        meta: { ...meta2, webVerified: true, testResult },
       };
     } catch (err) {
       logger.warn(`Web verify lỗi: ${err.message}`);
@@ -233,16 +257,7 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
     `match=${evaluation.numericTest.match}, testsPass=${testResult.allPass}`
   );
 
-  return {
-    evaluation,
-    meta: {
-      provider: result.provider,
-      modelId: result.modelId,
-      keyId: result.keyId,
-      usage: result.usage,
-      testResult,
-    },
-  };
+  return { evaluation, meta: { ...meta, testResult } };
 }
 
 module.exports = { kiemChung, parseJSONFromModel, normalizeEvaluation, runTests };

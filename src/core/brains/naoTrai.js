@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 NÃO TRÁI — Tạo TIP 14 trường + 4 trường máy
-   - Retry với blacklist model khi JSON parse fail
-   - Sanitize JSON trước khi parse (fix key thiếu ngoặc kép)
+   - JSON mode + retry blacklist model
+   - Sanitize JSON trước khi parse
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
@@ -20,26 +20,12 @@ const VALID_LOGIC_TYPES = ['expr', 'code', 'patch', ''];
 
 const MAX_JSON_RETRY = 3;
 
-/**
- * Làm sạch text JSON trước khi parse.
- * - Bỏ ký tự zero-width, BOM
- * - Bỏ trailing comma: {"a":1,} → {"a":1}
- * - Thêm ngoặc kép cho key không có: {a:1} → {"a":1}
- */
 function sanitizeJsonText(text) {
   if (!text || typeof text !== 'string') return '';
 
   let s = text;
-
-  // Bỏ ký tự vô hình
   s = s.replace(/[\u200B-\u200D\uFEFF]/g, '');
-
-  // Bỏ trailing comma trước } hoặc ]
   s = s.replace(/,\s*([}\]])/g, '$1');
-
-  // Thêm dấu " cho key không có ngoặc kép
-  // VD: {a:1, b:"x"} → {"a":1, "b":"x"}
-  // Hỗ trợ cả key tiếng Việt (unicode)
   s = s.replace(
     /([{,]\s*)([a-zA-Z_\u00C0-\u1EF9][a-zA-Z0-9_\u00C0-\u1EF9]*)\s*:/g,
     '$1"$2":'
@@ -52,12 +38,9 @@ function parseJSONFromModel(raw) {
   if (!raw || typeof raw !== 'string') throw new Error('Output rỗng');
 
   let text = raw.trim();
-
-  // Bỏ markdown code fence nếu có
   const block = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
   if (block) text = block[1].trim();
 
-  // Chuẩn bị các ứng viên để thử parse
   const candidates = [text];
 
   const first = text.indexOf('{');
@@ -69,17 +52,13 @@ function parseJSONFromModel(raw) {
 
   let lastErr = null;
   for (const cand of candidates) {
-    // Thử parse trực tiếp
     try {
       return JSON.parse(cand);
     } catch (err) {
       lastErr = err;
     }
-
-    // Thử parse sau khi sanitize
     try {
-      const cleaned = sanitizeJsonText(cand);
-      return JSON.parse(cleaned);
+      return JSON.parse(sanitizeJsonText(cand));
     } catch (err) {
       lastErr = err;
     }
@@ -156,6 +135,7 @@ async function goiVaParse({ side, owner, messages, tempKeys, label }) {
           temperature: 0.2,
           maxTokens: 4096,
           excludeModels: [...excludeModels],
+          responseFormat: 'json', // [MỚI] bật JSON mode
         },
         tempKeys,
       });
@@ -222,11 +202,7 @@ async function phanTich({ problem, context = '', relatedTIPs = [], webResults = 
   logger.info(`🧠 Não trái tạo TIP: "${problem.slice(0, 60)}..."`);
 
   return await goiVaParse({
-    side: 'left',
-    owner,
-    messages,
-    tempKeys,
-    label: '🧠 Não trái',
+    side: 'left', owner, messages, tempKeys, label: '🧠 Não trái',
   });
 }
 
@@ -250,7 +226,6 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner, te
   parts.push(`- logicValue: ${tip.logicValue || '(TRỐNG)'}`);
   parts.push(`- outputTpl: ${tip.outputTpl || '(TRỐNG)'}`);
   parts.push(`- tests: ${JSON.stringify(tip.tests || [])}`);
-
   parts.push(`\n⚠️ TRƯỜNG CẦN BỔ SUNG: ${missingFields.join(', ')}`);
   parts.push(`\n🎯 Trả JSON đầy đủ 14 trường + 4 trường máy + tests.`);
   parts.push(`\nCHỈ trả JSON, KHÔNG có text trước hoặc sau.`);
@@ -263,11 +238,7 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner, te
   logger.info(`🧠 Não trái bổ sung: [${missingFields.join(', ')}]`);
 
   return await goiVaParse({
-    side: 'left',
-    owner,
-    messages,
-    tempKeys,
-    label: '🧠 Não trái (bổ sung)',
+    side: 'left', owner, messages, tempKeys, label: '🧠 Não trái (bổ sung)',
   });
 }
 
