@@ -1,5 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    📚 KHO TRI THỨC — Search match pattern + keyword (an toàn)
+   - Lọc cứng theo intent: intent=code → chỉ TIP code/general
    ═══════════════════════════════════════════════════════════════ */
 
 const { getTipModel } = require('../models/tip.model');
@@ -104,6 +105,12 @@ function extractNgrams(query, maxN = 3) {
   return ngrams;
 }
 
+/**
+ * Chấm điểm TIP theo intent + token + ngram.
+ * - Cùng category với intent: +30
+ * - Category "general": +5
+ * - Khác category: -50 (phạt nặng)
+ */
 function scoreTIP(tip, ctx) {
   let score = 0;
 
@@ -117,7 +124,19 @@ function scoreTIP(tip, ctx) {
 
   const tipCategory = String(tip.category || 'general').toLowerCase();
 
-  if (ctx.intent !== 'general' && tipCategory === ctx.intent) score += 10;
+  // ═══ Điểm category — quan trọng nhất ═══
+  if (ctx.intent !== 'general') {
+    if (tipCategory === ctx.intent) {
+      score += 30; // Cùng category
+    } else if (tipCategory === 'general') {
+      score += 5; // General — dùng được nhưng không ưu tiên
+    } else {
+      score -= 50; // Khác category → phạt nặng
+    }
+  } else {
+    // intent=general → không phạt
+    score += 5;
+  }
 
   let kwHits = 0;
   for (const kw of tipKeywords) {
@@ -190,11 +209,22 @@ async function searchTIP(query, options = {}) {
     return { ...tip, _score: score };
   });
 
-  scored.sort((a, b) => b._score - a._score);
+  // ═══ LỌC CỨNG THEO INTENT ═══
+  let filtered = scored;
+  if (intent !== 'general') {
+    filtered = scored.filter((t) => {
+      const cat = String(t.category || 'general').toLowerCase();
+      return cat === intent || cat === 'general';
+    });
+  }
 
-  const passed = scored.filter((t) => t._score >= minScore);
+  filtered.sort((a, b) => b._score - a._score);
 
-  logger.debug(`Kho 2: ${candidates.length} thô → ${passed.length} pass (≥${minScore})`);
+  const passed = filtered.filter((t) => t._score >= minScore);
+
+  logger.debug(
+    `Kho 2: ${candidates.length} thô → ${filtered.length} sau lọc intent=${intent} → ${passed.length} pass (≥${minScore})`
+  );
 
   return passed.slice(0, limit).map(({ _score, ...tip }) => tip);
 }
