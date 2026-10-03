@@ -1,8 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
    🌐 PROVIDERS + MODEL PRIORITY + TIER
-   - Model Groq đã chết (llama-3.3-70b, kimi-k2...) đã xóa
-   - Mỗi model gán tier 1-4 (1 = mạnh nhất)
-   - Tier-first: dùng hết tier 1 xuyên provider → tier 2 → ...
+   - Gemini 2.5-flash đã chết → xóa
+   - Thêm gemini-3.5-flash-lite (thay thế 3.1 sẽ chết 2027)
+   - Groq chỉ giữ model sống
    ═══════════════════════════════════════════════════════════════ */
 
 const PROVIDERS = {
@@ -33,6 +33,9 @@ const PROVIDERS = {
 
 /* ═══════════════════════════════════════════════════════════════
    BẢNG ƯU TIÊN MODEL FREE — chỉ model CÒN SỐNG
+   Gemini đã xóa:
+     - gemini-2.5-flash (chết — no longer available to new users)
+     - gemini-2.5-flash-lite (cùng đợt)
    Groq đã xóa:
      - llama-3.3-70b-versatile (chết 16/08/26)
      - moonshotai/kimi-k2-instruct (chết 10/10/25)
@@ -45,7 +48,7 @@ const MODEL_PRIORITY = {
   gemini: [
     'gemini-3.8-flash',
     'gemini-3.7-flash',
-    'gemini-2.5-flash',
+    'gemini-3.5-flash-lite',
     'gemini-3.1-flash-lite',
   ],
   groq: [
@@ -83,7 +86,7 @@ const MODEL_TIER = {
   'poolside/laguna-s-2.1:free': 2,
 
   // ═══ TIER 3 — Trung bình ═══
-  'gemini-2.5-flash': 3,
+  'gemini-3.5-flash-lite': 3,
   'openai/gpt-oss-20b': 3,
   'qwen/qwen3.8-27b': 3,
   'stealth/space-bunny-alpha:free': 3,
@@ -104,10 +107,8 @@ const DEFAULT_TIER = 5;
 const GEMINI_FREE_MODELS = new Set([
   'gemini-3.8-flash',
   'gemini-3.7-flash',
-  'gemini-3.1-flash-lite',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
   'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
   'gemini-3.1-flash',
 ]);
 
