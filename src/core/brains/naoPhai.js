@@ -1,11 +1,11 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 NÃO PHẢI — Kiểm TIP JSON + verify bằng machineEngine
+   🧠 NÃO PHẢI — Kiểm TIP + chạy tests verify
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
 const naoPhaiPrompt = require('./prompts/naoPhai.prompt');
 const { webSearch, formatForPrompt } = require('../webSearch');
-const { testTIP } = require('../machineEngine');
+const { evaluate } = require('mathjs');
 const logger = require('../../utils/logger');
 
 const FIELDS_14 = [
@@ -36,9 +36,6 @@ function parseJSONFromModel(raw) {
   }
 }
 
-/**
- * Chuẩn hóa kết quả Não phải trả về
- */
 function normalizeEvaluation(raw) {
   const missingFields = Array.isArray(raw.missingFields)
     ? raw.missingFields
@@ -76,69 +73,99 @@ function normalizeEvaluation(raw) {
 
   const needSupplement = missingFields.length > 0;
 
-  return {
-    missingFields, reason, numericTest, issues, suggestions,
-    needSupplement, needWebSearch, searchQuery,
-  };
+  return { missingFields, reason, numericTest, issues, suggestions, needSupplement, needWebSearch, searchQuery };
 }
 
 /**
- * Chạy machine engine test để kiểm TIP có hoạt động không
+ * Chạy thử tests — verify logicValue có đúng không
  */
-function verifyByEngine(tip) {
-  try {
-    const r = testTIP(tip);
-    return r;
-  } catch (err) {
-    logger.warn(`Engine verify lỗi: ${err.message}`);
-    return { allPass: false, results: [], error: err.message };
+function runTests(tip) {
+  if (!Array.isArray(tip.tests) || tip.tests.length === 0) {
+    return { allPass: true, results: [] };
   }
+
+  if (tip.logicType !== 'expr' || !tip.logicValue) {
+    return { allPass: true, results: [], skipped: true };
+  }
+
+  const results = [];
+
+  for (const tc of tip.tests) {
+    try {
+      const scope = {};
+      for (const [k, v] of Object.entries(tc.input || {})) {
+        const num = Number(v);
+        scope[k] = Number.isNaN(num) ? v : num;
+      }
+
+      const got = evaluate(tip.logicValue, scope);
+      const pass = got == tc.expected;
+
+      results.push({
+        input: tc.input,
+        expected: tc.expected,
+        got,
+        pass,
+      });
+    } catch (err) {
+      results.push({
+        input: tc.input,
+        expected: tc.expected,
+        got: null,
+        pass: false,
+        error: err.message,
+      });
+    }
+  }
+
+  return {
+    allPass: results.every((r) => r.pass),
+    results,
+  };
 }
 
 async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) {
   if (!tip || typeof tip !== 'object') throw new Error('TIP không hợp lệ');
-  if (!tip.nguyenLy) throw new Error('TIP thiếu nguyenLy');
+  if (!tip.nguyenLy || tip.nguyenLy.trim() === '') throw new Error('TIP thiếu nguyenLy');
+  if (!owner || (!owner.userId && !owner.guestSessionId && !tempKeys)) {
+    throw new Error('Thiếu owner');
+  }
 
-  // ═══ BƯỚC 1: Chạy engine test trước ═══
-  const engineResult = verifyByEngine(tip);
-  logger.debug(`Engine test: allPass=${engineResult.allPass}, cases=${engineResult.results.length}`);
+  // ═══ Chạy tests trước ═══
+  const testResult = runTests(tip);
+  logger.debug(`Tests: allPass=${testResult.allPass}, cases=${testResult.results.length}`);
 
-  // Nếu engine test fail → báo luôn, không cần gọi Não phải
-  if (engineResult.results.length > 0 && !engineResult.allPass) {
-    const failed = engineResult.results.filter((r) => !r.pass);
-    logger.warn(`Engine test fail ${failed.length}/${engineResult.results.length} case`);
-
-    const numericTest = {
-      example: `Engine test: ${JSON.stringify(failed[0].input)}`,
-      calculation: `Kỳ vọng ${failed[0].expected}, nhận ${failed[0].got}`,
-      expected: String(failed[0].expected),
-      actual: String(failed[0].got),
-      match: false,
-    };
-
-    const issues = failed.map((f) => ({
-      field: 'testCase',
-      problem: `Input ${JSON.stringify(f.input)} → kỳ vọng ${f.expected}, nhận ${f.got}`,
-      severity: 'high',
-    }));
+  // Nếu tests fail → trả về luôn, không cần gọi Não phải
+  if (!testResult.allPass) {
+    const failed = testResult.results.filter((r) => !r.pass);
 
     return {
       evaluation: {
         missingFields: [],
-        reason: 'Engine test case fail',
-        numericTest,
-        issues,
-        suggestions: ['Sửa thuatToan/cayQuyetDinh để test case pass'],
+        reason: 'Tests fail',
+        numericTest: {
+          example: JSON.stringify(failed[0].input),
+          calculation: `Kỳ vọng ${failed[0].expected}, nhận ${failed[0].got}`,
+          expected: String(failed[0].expected),
+          actual: String(failed[0].got),
+          match: false,
+        },
+        issues: failed.map((f) => ({
+          field: 'logicValue',
+          problem: `Test ${JSON.stringify(f.input)} → kỳ vọng ${f.expected}, nhận ${f.got}`,
+          severity: 'high',
+        })),
+        suggestions: ['Sửa logicValue để test pass'],
         needSupplement: false,
         needWebSearch: false,
         searchQuery: '',
-        engineFailed: true,
+        testsFailed: true,
       },
-      meta: { provider: 'engine', engineResult },
+      meta: { provider: 'local', testResult },
     };
   }
 
-  // ═══ BƯỚC 2: Gọi Não phải kiểm schema ═══
+  // ═══ Gọi Não phải kiểm bằng model ═══
   const userMessage = naoPhaiPrompt.buildUserMessage({ tip, originalProblem });
 
   const messages = [
@@ -146,7 +173,7 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
     { role: 'user', content: userMessage },
   ];
 
-  logger.info(`🧠 Não phải kiểm: "${String(tip.nguyenLy).slice(0, 60)}..."`);
+  logger.info(`🧠 Não phải kiểm: "${tip.nguyenLy.slice(0, 60)}..."`);
 
   const result = await callModel({
     side: 'right',
@@ -160,10 +187,8 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
   const rawObj = parseJSONFromModel(result.text);
   let evaluation = normalizeEvaluation(rawObj);
 
-  // ═══ BƯỚC 3: Nếu Não phải yêu cầu tra Web ═══
+  // Web verify
   if (evaluation.needWebSearch && evaluation.searchQuery) {
-    logger.info(`🌐 Não phải xác minh Web: "${evaluation.searchQuery}"`);
-
     try {
       const searchResult = await webSearch(evaluation.searchQuery);
       const webText = formatForPrompt(searchResult);
@@ -172,7 +197,7 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
         { role: 'system', content: naoPhaiPrompt.SYSTEM_PROMPT },
         { role: 'user', content: userMessage },
         { role: 'assistant', content: result.text },
-        { role: 'user', content: `🌐 KẾT QUẢ TÌM KIẾM:\n${webText}\n\nKiểm lại TIP và trả JSON cuối.` },
+        { role: 'user', content: `🌐 WEB:\n${webText}\n\nKiểm lại TIP và trả JSON cuối.` },
       ];
 
       const result2 = await callModel({
@@ -195,17 +220,17 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
           keyId: result2.keyId,
           usage: result2.usage,
           webVerified: true,
-          engineResult,
+          testResult,
         },
       };
     } catch (err) {
-      logger.warn(`Web verify lỗi: ${err.message} → dùng gốc`);
+      logger.warn(`Web verify lỗi: ${err.message}`);
     }
   }
 
   logger.success(
     `🧠 Não phải: missing=[${evaluation.missingFields.join(',')}], ` +
-    `match=${evaluation.numericTest.match}, enginePass=${engineResult.allPass}`
+    `match=${evaluation.numericTest.match}, testsPass=${testResult.allPass}`
   );
 
   return {
@@ -215,14 +240,9 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
       modelId: result.modelId,
       keyId: result.keyId,
       usage: result.usage,
-      engineResult,
+      testResult,
     },
   };
 }
 
-module.exports = {
-  kiemChung,
-  parseJSONFromModel,
-  normalizeEvaluation,
-  verifyByEngine,
-};
+module.exports = { kiemChung, parseJSONFromModel, normalizeEvaluation, runTests };

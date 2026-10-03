@@ -1,15 +1,37 @@
 /* ═══════════════════════════════════════════════════════════════
-   🎯 LOGIC RUNNER — Match pattern + chạy logic (không cần model)
+   🎯 LOGIC RUNNER — Match pattern + chạy logic
    ═══════════════════════════════════════════════════════════════ */
 
 const { evaluate } = require('mathjs');
 const logger = require('../utils/logger');
 
 /**
+ * Chuẩn hóa câu hỏi — thêm space quanh toán tử
+ */
+function normalizeQuery(query) {
+  if (!query || typeof query !== 'string') return '';
+
+  let s = query.trim();
+
+  // Thêm space quanh toán tử nếu thiếu
+  s = s.replace(/(\d)\s*([+\-*/^=])\s*(\d)/g, '$1 $2 $3');
+
+  // Gộp space
+  s = s.replace(/\s+/g, ' ').trim();
+
+  return s;
+}
+
+/**
  * Chuyển pattern "{a} cộng {b}" → regex
+ * - Space → \s*
+ * - {a}, {b} → group số
  */
 function patternToRegex(pattern) {
   let s = String(pattern);
+
+  // Gộp space
+  s = s.replace(/\s+/g, ' ').trim();
 
   // Đánh dấu placeholder
   s = s.replace(/\{a\}/g, '\u0001NUM\u0001');
@@ -22,10 +44,13 @@ function patternToRegex(pattern) {
   s = s.replace(/\{error\}/g, '\u0001CODE\u0001');
   s = s.replace(/\{text\}/g, '\u0001CODE\u0001');
 
-  // Escape tất cả ký tự đặc biệt
+  // Escape ký tự đặc biệt
   s = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  // Khôi phục placeholder thành regex group
+  // Space → \s*
+  s = s.replace(/ /g, '\\s*');
+
+  // Khôi phục placeholder
   s = s.replace(/\u0001NUM\u0001/g, '(-?\\d+(?:\\.\\d+)?)');
   s = s.replace(/\u0001STR\u0001/g, '([\\w\\u00C0-\\u1EF9]+)');
   s = s.replace(/\u0001CODE\u0001/g, '(.+?)');
@@ -34,14 +59,13 @@ function patternToRegex(pattern) {
 }
 
 /**
- * Match câu hỏi user với danh sách patterns
- * @returns {object|null} vars hoặc null nếu không match
+ * Match câu hỏi với patterns → vars
  */
 function matchPattern(patterns, query) {
   if (!Array.isArray(patterns) || patterns.length === 0) return null;
   if (!query || typeof query !== 'string') return null;
 
-  const q = query.trim();
+  const q = normalizeQuery(query);
 
   for (const p of patterns) {
     try {
@@ -49,7 +73,6 @@ function matchPattern(patterns, query) {
       const m = q.match(re);
 
       if (m) {
-        // Lấy tên placeholder theo thứ tự
         const placeholders = [];
         const re2 = /\{(\w+)\}/g;
         let match2;
@@ -74,16 +97,15 @@ function matchPattern(patterns, query) {
 }
 
 /**
- * Chạy logic theo logicType
+ * Chạy logic
  */
 function runLogic({ logicType, logicValue, vars }) {
-  if (!logicType || !logicValue) {
-    return { success: false, error: 'Thiếu logicType hoặc logicValue' };
-  }
+  if (!logicType) return { success: false, error: 'Thiếu logicType' };
 
   if (logicType === 'expr') {
+    if (!logicValue) return { success: false, error: 'Thiếu logicValue' };
+
     try {
-      // Chuẩn bị scope — convert số
       const scope = {};
       for (const [k, v] of Object.entries(vars || {})) {
         const num = Number(v);
@@ -99,7 +121,8 @@ function runLogic({ logicType, logicValue, vars }) {
   }
 
   if (logicType === 'code') {
-    // Trả code — có thể thay placeholder trong code
+    if (!logicValue) return { success: false, error: 'Thiếu logicValue' };
+
     let code = logicValue;
     for (const [k, v] of Object.entries(vars || {})) {
       code = code.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
@@ -108,7 +131,8 @@ function runLogic({ logicType, logicValue, vars }) {
   }
 
   if (logicType === 'patch') {
-    // Trả patch
+    if (!logicValue) return { success: false, error: 'Thiếu logicValue' };
+
     let patch = logicValue;
     for (const [k, v] of Object.entries(vars || {})) {
       patch = patch.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
@@ -127,12 +151,10 @@ function formatOutput(tpl, vars, kq) {
 
   let out = String(tpl);
 
-  // Thay placeholder vars
   for (const [k, v] of Object.entries(vars || {})) {
     out = out.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
   }
 
-  // Thay {kq} bằng kết quả
   out = out.replace(/\{kq\}/g, String(kq));
 
   return out;
@@ -143,4 +165,5 @@ module.exports = {
   matchPattern,
   runLogic,
   formatOutput,
+  normalizeQuery,
 };

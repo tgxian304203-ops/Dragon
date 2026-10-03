@@ -1,5 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    🐉 RỒNG THẦN — Orchestrator (R1–R8)
+   - Check testsFailed từ Não phải → bổ sung
    ═══════════════════════════════════════════════════════════════ */
 
 const { docNguCanh, rutGonChoNao } = require('./docNguCanh');
@@ -34,6 +35,7 @@ async function xuLy({ message, conversationId, userId, guestSessionId }) {
   return await xuLyKhongWeb({ problem, analysis, context, owner });
 }
 
+/* ─── Cập nhật Context ─── */
 async function capNhatContext({ conversationId, userId, guestSessionId, context, problem, intent = 'general' }) {
   if (!context || !context.allMessages || context.allMessages.length === 0) return;
 
@@ -68,6 +70,7 @@ async function capNhatContext({ conversationId, userId, guestSessionId, context,
   });
 }
 
+/* ─── Phân tích yêu cầu ─── */
 const WEB_PATTERNS = [
   /\b(hôm nay|hôm qua|ngày mai|tuần này|tháng này|năm nay|mới nhất|gần đây|hiện tại|bây giờ)\b/i,
   /\b(tin tức|thời sự|sự kiện|báo|news|thời tiết|dự báo|giá cả|giá vàng|chứng khoán|tỷ giá)\b/i,
@@ -100,7 +103,6 @@ function phanTichBangRule(problem) {
 
   if (needWeb && needCode && codeHits > webHits) needWeb = false;
 
-  // Intent detection
   const intent = detectIntent(problem);
 
   return {
@@ -181,6 +183,7 @@ function extractKeywords(text) {
   return Object.entries(freq).sort((a, b) => b[1] - a[1]).map(([w]) => w);
 }
 
+/* ─── Nhánh có web ─── */
 async function xuLyCoWeb({ problem, searchQuery }) {
   logger.info(`🌐 DDG: "${searchQuery.slice(0, 60)}..."`);
 
@@ -214,6 +217,7 @@ function formatWebOutput(searchResult, problem) {
   return lines.join('\n');
 }
 
+/* ─── Nhánh không web ─── */
 async function xuLyKhongWeb({ problem, analysis, context, owner }) {
   const searchQuery = analysis.mainProblem || problem;
   const needCode = analysis.needCode;
@@ -226,14 +230,13 @@ async function xuLyKhongWeb({ problem, analysis, context, owner }) {
     try {
       relatedTIPs = await searchTIP(searchQuery, {
         limit: 10,
-        minScore: 20,
+        minScore: 15,
         intent,
       });
     } catch (err) {
       logger.warn('Search Kho 2 lỗi:', err.message);
     }
 
-    // Search đã scoring + lọc ngưỡng → TIP đầu tiên là tốt nhất
     let tip = null;
     for (const t of relatedTIPs) {
       if (isTIPPhuHop(t, needCode)) {
@@ -243,12 +246,12 @@ async function xuLyKhongWeb({ problem, analysis, context, owner }) {
     }
 
     if (tip) {
-      logger.info(`📚 Kho 2 có TIP phù hợp [${tip.category}] → dùng`);
+      logger.info(`📚 Kho 2 có TIP [${tip.category}] → dùng`);
       return await chayTieuNao({ tip, problem, needCode, owner, context, source: 'kho2' });
     }
 
     if (outer === 0) {
-      logger.info(`📚 Không có TIP phù hợp → Não trái + Não phải`);
+      logger.info(`📚 Không có TIP → Não trái + Não phải`);
 
       const newTip = await taoTIPMoi({ problem, context, owner, needCode, relatedTIPs, intent });
 
@@ -260,11 +263,14 @@ async function xuLyKhongWeb({ problem, analysis, context, owner }) {
         };
       }
 
-      logger.info(`✅ Đã lưu TIP [${newTip.category}] → quay lại search Kho 2`);
+      logger.info(`✅ Đã lưu TIP [${newTip.category}] → quay lại search`);
       continue;
     }
 
-    logger.warn(`Quay lại vẫn không tìm thấy → Não trái + Não phải trực tiếp`);
+    logger.warn(`Quay lại vẫn không tìm thấy → dùng tạm relatedTIPs[0]`);
+    if (relatedTIPs.length > 0) {
+      return await chayTieuNao({ tip: relatedTIPs[0], problem, needCode, owner, context, source: 'kho2_temp' });
+    }
 
     return {
       answer: '⚠️ Không có TIP khả dụng. Vui lòng thử lại.',
@@ -308,15 +314,16 @@ async function chayTieuNao({ tip, problem, needCode, owner, context, source }) {
 
 function isTIPPhuHop(tip, needCode) {
   if (!tip || !tip.nguyenLy || tip.nguyenLy.trim() === '') return false;
-  if (needCode && !tieuNao.tipCoCode(tip)) return false;
+  if (needCode && !tip.patterns) return false;
   return true;
 }
 
+/* ─── Tạo TIP mới — Loop 3 lần ─── */
 async function taoTIPMoi({ problem, context, owner, needCode, relatedTIPs = [], intent = 'general' }) {
   const contextRutGon = rutGonChoNao({ context, problem, recentCount: 20 });
 
   const problemForNao = needCode
-    ? `${problem}\n\n⚠️ User cần CODE. TIP phải có code block (\`\`\`python ... \`\`\`) trong workflow hoặc thuatToan.`
+    ? `${problem}\n\n⚠️ User cần CODE. logicType="code", logicValue là code chạy được.`
     : problem;
 
   const MAX_ATTEMPTS = 3;
@@ -351,19 +358,29 @@ async function taoTIPMoi({ problem, context, owner, needCode, relatedTIPs = [], 
 
     currentTip = traiResult.tip;
 
+    // ═══ Kiểm cứng 14 trường ═══
     const danhGia = danhGiaTIP(currentTip);
     if (!danhGia.day) {
       let missing = [...danhGia.missing, ...danhGia.empty];
-      if (needCode && !tieuNao.tipCoCode(currentTip)) missing.push('workflow');
+
+      // Nếu thiếu patterns/logicType → thêm vào
+      if (!currentTip.patterns || currentTip.patterns.length === 0) missing.push('patterns');
+      if (!currentTip.logicType) missing.push('logicType');
+      if (!currentTip.outputTpl) missing.push('outputTpl');
+
       missingFields = [...new Set(missing)];
       continue;
     }
 
-    if (needCode && !tieuNao.tipCoCode(currentTip)) {
-      missingFields = ['workflow'];
+    // ═══ Kiểm 4 trường máy ═══
+    const machineCheck = checkMachineFields(currentTip);
+    if (!machineCheck.ok) {
+      logger.warn(`4 trường máy chưa đủ: ${machineCheck.reason}`);
+      missingFields = machineCheck.missing;
       continue;
     }
 
+    // ═══ Não phải kiểm + chạy tests ═══
     logger.info(`🧠 Não phải kiểm (${attempt}/${MAX_ATTEMPTS})`);
 
     let phaiResult;
@@ -376,9 +393,23 @@ async function taoTIPMoi({ problem, context, owner, needCode, relatedTIPs = [], 
       continue;
     }
 
-    if (phaiResult.evaluation.needSupplement) {
-      let missing = [...phaiResult.evaluation.missingFields];
-      if (needCode && !tieuNao.tipCoCode(currentTip)) missing.push('workflow');
+    const evalRes = phaiResult.evaluation;
+
+    // ═══ Nếu tests fail → Não trái bổ sung logicValue ═══
+    if (evalRes.testsFailed) {
+      logger.warn(`Tests fail → Não trái bổ sung logicValue`);
+      missingFields = ['logicValue'];
+      continue;
+    }
+
+    // ═══ Nếu thiếu trường → Não trái bổ sung ═══
+    if (evalRes.needSupplement) {
+      let missing = [...evalRes.missingFields];
+
+      if (!currentTip.patterns || currentTip.patterns.length === 0) missing.push('patterns');
+      if (!currentTip.logicType) missing.push('logicType');
+      if (!currentTip.outputTpl) missing.push('outputTpl');
+
       missingFields = [...new Set(missing)];
       continue;
     }
@@ -405,6 +436,33 @@ async function taoTIPMoi({ problem, context, owner, needCode, relatedTIPs = [], 
   }
 }
 
+/**
+ * Kiểm 4 trường máy có đủ không
+ */
+function checkMachineFields(tip) {
+  const missing = [];
+
+  if (!Array.isArray(tip.patterns) || tip.patterns.length === 0) {
+    missing.push('patterns');
+  }
+  if (!tip.logicType) {
+    missing.push('logicType');
+  }
+  if (!tip.outputTpl) {
+    missing.push('outputTpl');
+  }
+  // logicValue chỉ cần khi logicType != ""
+  if (tip.logicType && !tip.logicValue) {
+    missing.push('logicValue');
+  }
+
+  if (missing.length > 0) {
+    return { ok: false, missing, reason: `Thiếu: ${missing.join(', ')}` };
+  }
+
+  return { ok: true, missing: [] };
+}
+
 module.exports = {
   xuLy,
   phanTichYeuCau,
@@ -414,4 +472,5 @@ module.exports = {
   extractKeywords,
   isTIPPhuHop,
   capNhatContext,
+  checkMachineFields,
 };

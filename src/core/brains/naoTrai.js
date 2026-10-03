@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 NÃO TRÁI — normalize 14 trường JSON + 4 trường máy
+   🧠 NÃO TRÁI — Tạo TIP 14 trường + 4 trường máy
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
@@ -14,7 +14,7 @@ const FIELDS_14 = [
 ];
 
 const VALID_CATEGORIES = ['math', 'code', 'bugfix', 'explain', 'general'];
-const VALID_LOGIC_TYPES = ['expr', 'code', 'patch', 'machine', ''];
+const VALID_LOGIC_TYPES = ['expr', 'code', 'patch', ''];
 
 function parseJSONFromModel(raw) {
   if (!raw || typeof raw !== 'string') throw new Error('Output rỗng');
@@ -37,100 +37,22 @@ function parseJSONFromModel(raw) {
   }
 }
 
-/**
- * Chuẩn hóa từng trường
- */
 function normalizeTIP(raw) {
   const tip = {};
 
-  // nguyenLy — string
-  tip.nguyenLy = typeof raw.nguyenLy === 'string' ? raw.nguyenLy.trim() : String(raw.nguyenLy || '');
+  // 14 trường text
+  for (const field of FIELDS_14) {
+    const value = raw[field];
+    if (field === 'quanHe') {
+      tip[field] = Array.isArray(value)
+        ? value.filter((v) => typeof v === 'string' && v.trim())
+        : [];
+    } else {
+      tip[field] = typeof value === 'string' ? value.trim() : String(value || '');
+    }
+  }
 
-  // quyTac — mảng string
-  tip.quyTac = Array.isArray(raw.quyTac)
-    ? raw.quyTac.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim())
-    : (typeof raw.quyTac === 'string' && raw.quyTac.trim() ? [raw.quyTac.trim()] : []);
-
-  // dieuKien — mảng object {var, op, value}
-  tip.dieuKien = Array.isArray(raw.dieuKien)
-    ? raw.dieuKien
-        .filter((d) => d && typeof d === 'object' && d.var && d.op)
-        .map((d) => ({
-          var: String(d.var),
-          op: String(d.op),
-          value: d.value,
-        }))
-    : [];
-
-  // cayQuyetDinh — object
-  tip.cayQuyetDinh = (raw.cayQuyetDinh && typeof raw.cayQuyetDinh === 'object')
-    ? raw.cayQuyetDinh
-    : null;
-
-  // phuongPhap — string
-  tip.phuongPhap = typeof raw.phuongPhap === 'string' ? raw.phuongPhap.trim() : '';
-
-  // thuatToan — mảng object {step, op, ...}
-  tip.thuatToan = Array.isArray(raw.thuatToan)
-    ? raw.thuatToan
-        .filter((s) => s && typeof s === 'object' && s.op)
-        .map((s, i) => ({
-          step: Number.isFinite(s.step) ? s.step : i + 1,
-          op: String(s.op),
-          ...s,
-        }))
-    : [];
-
-  // workflow — object
-  tip.workflow = (raw.workflow && typeof raw.workflow === 'object')
-    ? raw.workflow
-    : null;
-
-  // suyLuan — mảng string
-  tip.suyLuan = Array.isArray(raw.suyLuan)
-    ? raw.suyLuan.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim())
-    : (typeof raw.suyLuan === 'string' && raw.suyLuan.trim() ? [raw.suyLuan.trim()] : []);
-
-  // testCase — mảng object {input, expected}
-  tip.testCase = Array.isArray(raw.testCase)
-    ? raw.testCase
-        .filter((t) => t && typeof t === 'object' && t.input)
-        .map((t) => ({
-          input: t.input,
-          expected: t.expected,
-        }))
-    : [];
-
-  // kiemChung — object
-  tip.kiemChung = (raw.kiemChung && typeof raw.kiemChung === 'object')
-    ? raw.kiemChung
-    : null;
-
-  // ngoaiLe — mảng object {when, action, msg}
-  tip.ngoaiLe = Array.isArray(raw.ngoaiLe)
-    ? raw.ngoaiLe
-        .filter((e) => e && typeof e === 'object')
-        .map((e) => ({
-          when: String(e.when || ''),
-          action: String(e.action || 'error'),
-          msg: String(e.msg || ''),
-        }))
-    : [];
-
-  // caseKinhNghiem — mảng string
-  tip.caseKinhNghiem = Array.isArray(raw.caseKinhNghiem)
-    ? raw.caseKinhNghiem.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim())
-    : (typeof raw.caseKinhNghiem === 'string' && raw.caseKinhNghiem.trim() ? [raw.caseKinhNghiem.trim()] : []);
-
-  // quanHe — mảng string
-  tip.quanHe = Array.isArray(raw.quanHe)
-    ? raw.quanHe.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim())
-    : [];
-
-  // nguonPhienBan — string
-  tip.nguonPhienBan = typeof raw.nguonPhienBan === 'string' ? raw.nguonPhienBan.trim() : '';
-
-  // ═══ Metadata ═══
+  // Metadata
   let category = String(raw.category || '').toLowerCase().trim();
   if (!VALID_CATEGORIES.includes(category)) category = 'general';
   tip.category = category;
@@ -142,7 +64,11 @@ function normalizeTIP(raw) {
         .slice(0, 20)
     : [];
 
-  // ═══ 4 trường máy ═══
+  tip.qualityScore = Number.isFinite(raw.qualityScore)
+    ? Math.max(0, Math.min(100, Math.round(raw.qualityScore)))
+    : 0;
+
+  // 4 trường máy
   tip.patterns = Array.isArray(raw.patterns)
     ? raw.patterns
         .filter((p) => typeof p === 'string' && p.trim().length >= 3)
@@ -157,9 +83,12 @@ function normalizeTIP(raw) {
   tip.logicValue = typeof raw.logicValue === 'string' ? raw.logicValue.trim() : '';
   tip.outputTpl = typeof raw.outputTpl === 'string' ? raw.outputTpl.trim() : '';
 
-  tip.qualityScore = Number.isFinite(raw.qualityScore)
-    ? Math.max(0, Math.min(100, Math.round(raw.qualityScore)))
-    : 0;
+  // tests
+  tip.tests = Array.isArray(raw.tests)
+    ? raw.tests
+        .filter((t) => t && typeof t === 'object' && t.input && t.expected !== undefined)
+        .slice(0, 10)
+    : [];
 
   return tip;
 }
@@ -199,8 +128,7 @@ async function phanTich({ problem, context = '', relatedTIPs = [], webResults = 
 
   logger.success(
     `🧠 Não trái xong: ${result.provider}/${result.modelId} [${tip.category}] ` +
-    `patterns=${tip.patterns.length}, logicType=${tip.logicType}, ` +
-    `thuatToan=${tip.thuatToan.length} bước, testCase=${tip.testCase.length}`
+    `patterns=${tip.patterns.length}, logicType=${tip.logicType}, tests=${tip.tests.length}`
   );
 
   return {
@@ -211,27 +139,27 @@ async function phanTich({ problem, context = '', relatedTIPs = [], webResults = 
 
 async function boSung({ tip, missingFields, problem, needCode = false, owner, tempKeys = null }) {
   if (!tip || typeof tip !== 'object') throw new Error('TIP không hợp lệ');
-  if (!Array.isArray(missingFields) || missingFields.length === 0) throw new Error('Không có trường cần bổ sung');
+  if (!Array.isArray(missingFields) || missingFields.length === 0) {
+    throw new Error('Không có trường cần bổ sung');
+  }
 
   const parts = [];
   parts.push(`📌 VẤN ĐỀ GỐC:\n${problem}`);
   parts.push(`\n📦 TIP HIỆN TẠI:`);
-
   for (const field of FIELDS_14) {
     const v = tip[field];
-    if (Array.isArray(v) || (v && typeof v === 'object')) {
-      parts.push(`- ${field}: ${JSON.stringify(v)}`);
-    } else {
-      parts.push(`- ${field}: ${v || '(TRỐNG)'}`);
-    }
+    if (Array.isArray(v)) parts.push(`- ${field}: ${v.join(', ')}`);
+    else parts.push(`- ${field}: ${v || '(TRỐNG)'}`);
   }
   parts.push(`- category: ${tip.category || '(TRỐNG)'}`);
-  parts.push(`- patterns: ${(tip.patterns || []).join(' | ') || '(TRỐNG)'}`);
+  parts.push(`- patterns: ${(tip.patterns || []).join(' | ')}`);
   parts.push(`- logicType: ${tip.logicType || '(TRỐNG)'}`);
+  parts.push(`- logicValue: ${tip.logicValue || '(TRỐNG)'}`);
   parts.push(`- outputTpl: ${tip.outputTpl || '(TRỐNG)'}`);
+  parts.push(`- tests: ${JSON.stringify(tip.tests || [])}`);
 
   parts.push(`\n⚠️ TRƯỜNG CẦN BỔ SUNG: ${missingFields.join(', ')}`);
-  parts.push(`\n🎯 Trả JSON đầy đủ theo schema. logicType="machine".`);
+  parts.push(`\n🎯 Trả JSON đầy đủ 14 trường + 4 trường máy + tests.`);
   parts.push(`\nChỉ trả JSON, không markdown.`);
 
   const messages = [
