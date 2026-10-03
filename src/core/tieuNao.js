@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 TIỂU NÃO — Đọc TIP + ÁP DỤNG (toán → chạy Piston)
+   🧠 TIỂU NÃO — Tính toán trực tiếp (không cần Piston cho toán)
    ═══════════════════════════════════════════════════════════════ */
 
 const { testCode } = require('./pistonTest');
@@ -20,12 +20,12 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
 /* ═══════════════ KHÔNG CODE ═══════════════ */
 
 async function xuLyKhongCode({ tip, problem }) {
-  // 1. Thử trích biểu thức toán học từ câu hỏi
+  // 1. Thử trích biểu thức toán học
   const expr = extractMathExpression(problem);
 
   if (expr) {
     logger.info(`🧮 Phát hiện biểu thức: ${expr}`);
-    const result = await tinhToan(expr, tip);
+    const result = tinhToan(expr, tip);
 
     if (result) {
       return {
@@ -36,7 +36,7 @@ async function xuLyKhongCode({ tip, problem }) {
     }
   }
 
-  // 2. Không phải toán → format TIP như cũ
+  // 2. Không phải toán → format TIP đầy đủ
   return {
     answer: formatTIPDayDu(tip),
     type: 'no_code',
@@ -46,9 +46,6 @@ async function xuLyKhongCode({ tip, problem }) {
 
 /**
  * Trích biểu thức toán học từ câu hỏi
- * VD: "50 cộng 50 bằng mấy" → "50 + 50"
- *     "100 nhân 100" → "100 * 100"
- *     "1000+1000=?" → "1000 + 1000"
  */
 function extractMathExpression(text) {
   if (!text) return null;
@@ -72,8 +69,7 @@ function extractMathExpression(text) {
     }
   }
 
-  // Fallback: regex ký hiệu toán tử
-  // Tìm pattern số OP số (cho phép khoảng trắng)
+  // Fallback: ký hiệu toán tử
   const symbolRe = /(-?\d+(?:\.\d+)?)\s*([+\-*/xX])\s*(-?\d+(?:\.\d+)?)/;
   const m = s.match(symbolRe);
   if (m) {
@@ -86,35 +82,49 @@ function extractMathExpression(text) {
 }
 
 /**
- * Tính biểu thức bằng Piston (Python)
+ * Tính biểu thức trực tiếp (không dùng Piston)
+ * Chỉ hỗ trợ +, -, *, /, ** với 2 số
  */
-async function tinhToan(expr, tip) {
-  // Sinh code Python tính
-  const code = `result = ${expr}\nprint(result)`;
+function tinhToan(expr, tip) {
+  // Parse: "50 + 50" → [50, '+', 50]
+  const match = expr.match(/^(-?\d+(?:\.\d+)?)\s*(\*\*|[+\-*/])\s*(-?\d+(?:\.\d+)?)$/);
 
-  const testResult = await testCode({
-    code,
-    language: 'python',
-  });
+  if (!match) return null;
 
-  if (!testResult.success) {
-    logger.warn(`Piston tính lỗi: ${testResult.error}`);
-    return null;
+  const a = parseFloat(match[1]);
+  const op = match[2];
+  const b = parseFloat(match[3]);
+
+  let ketQua;
+
+  switch (op) {
+    case '+': ketQua = a + b; break;
+    case '-': ketQua = a - b; break;
+    case '*': ketQua = a * b; break;
+    case '/':
+      if (b === 0) return `⚠️ Không thể chia cho 0`;
+      ketQua = a / b;
+      break;
+    case '**': ketQua = Math.pow(a, b); break;
+    default: return null;
   }
 
-  const output = (testResult.stdout || '').trim();
-  if (!output) return null;
+  // Làm tròn nếu là số thực dài
+  if (Number.isInteger(ketQua)) {
+    // Số nguyên — format có dấu chấm phân cách nghìn
+    ketQua = ketQua.toString();
+  } else {
+    ketQua = Math.round(ketQua * 1e10) / 1e10;
+  }
 
   // Format kết quả
   const parts = [];
 
-  // Dòng 1: câu trả lời ngắn gọn, nổi bật
-  parts.push(`## ${expr} = **${output}**`);
+  parts.push(`## ${formatSo(a)} ${op === '**' ? '^' : op} ${formatSo(b)} = **${formatKetQua(ketQua)}**`);
 
-  // Dòng 2-3: trích ngắn từ TIP
   if (tip.nguyenLy) {
     parts.push('');
-    parts.push(`📌 **Nguyên lý:** ${truncate(tip.nguyenLy, 200)}`);
+    parts.push(`📌 **Nguyên lý:** ${truncate(tip.nguyenLy, 250)}`);
   }
 
   if (tip.kiemChung) {
@@ -122,17 +132,24 @@ async function tinhToan(expr, tip) {
     parts.push(`🔍 **Kiểm chứng:** ${truncate(tip.kiemChung, 200)}`);
   }
 
-  if (tip.ngoaiLe) {
-    parts.push('');
-    parts.push(`⚠️ **Lưu ý:** ${truncate(tip.ngoaiLe, 150)}`);
-  }
-
   return parts.join('\n');
 }
 
-/**
- * Format đầy đủ TIP (khi không phải toán)
- */
+function formatSo(n) {
+  if (Number.isInteger(n)) {
+    return n.toLocaleString('vi-VN');
+  }
+  return String(n);
+}
+
+function formatKetQua(n) {
+  if (typeof n === 'string') return n;
+  if (Number.isInteger(n)) {
+    return n.toLocaleString('vi-VN');
+  }
+  return String(n);
+}
+
 function formatTIPDayDu(tip) {
   const parts = [];
 
@@ -273,8 +290,6 @@ function phanTichLoi(error, tip) {
     nguyenNhan = 'truy cập mảng ngoài phạm vi';
   } else if (/syntaxerror|invalid syntax/i.test(err)) {
     nguyenNhan = 'lỗi cú pháp';
-  } else if (ngoaiLe && err.toLowerCase().includes('exception')) {
-    nguyenNhan = `ngoại lệ từ TIP: ${tip.ngoaiLe.slice(0, 100)}`;
   }
 
   return { viTri, nguyenNhan, rawError: err };
@@ -284,9 +299,6 @@ function timCachSua(block, tip, analysis) {
   if (!block || !block.code) return { code: null, language: 'python', cachSua: 'không có code' };
 
   const lang = block.language;
-
-  let cachSua = 'không tìm được cách sửa';
-  let code = null;
 
   if (!['python', 'javascript'].includes(lang)) {
     return { code: null, language: lang, cachSua: 'ngôn ngữ không hỗ trợ' };
@@ -300,14 +312,17 @@ function timCachSua(block, tip, analysis) {
     return { code: null, language: lang, cachSua: 'đã có try/except — không wrap lại' };
   }
 
+  let code = null;
+  let cachSua = '';
+
   if (lang === 'python') {
     const indented = original.split('\n').map((l) => '    ' + l).join('\n');
     code = `try:\n${indented}\nexcept Exception as e:\n    print("Lỗi:", e)`;
-    cachSua = 'wrap try/except (theo ngoại lệ TIP)';
-  } else if (lang === 'javascript') {
+    cachSua = 'wrap try/except';
+  } else {
     const indented = original.split('\n').map((l) => '  ' + l).join('\n');
     code = `try {\n${indented}\n} catch (e) {\n  console.log("Lỗi:", e.message);\n}`;
-    cachSua = 'wrap try/catch (theo ngoại lệ TIP)';
+    cachSua = 'wrap try/catch';
   }
 
   return { code, language: lang, cachSua, explain: `Sửa: ${cachSua}` };
