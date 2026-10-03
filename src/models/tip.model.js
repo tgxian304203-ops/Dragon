@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   📚 TIP — Kho 2 (K2a, K2b) — 14 trường + category
+   📚 TIP — Kho 2 (K2a, K2b) — 14 trường + patterns + logic
    ═══════════════════════════════════════════════════════════════ */
 
 const mongoose = require('mongoose');
@@ -7,6 +7,7 @@ const { getDB2 } = require('../config/db2');
 
 const tipSchema = new mongoose.Schema(
   {
+    // 14 trường chính
     nguyenLy:       { type: String, required: true, default: '', maxlength: 100000 },
     quyTac:         { type: String, default: '', maxlength: 100000 },
     dieuKien:       { type: String, default: '', maxlength: 100000 },
@@ -22,9 +23,20 @@ const tipSchema = new mongoose.Schema(
     quanHe:         { type: [String], default: [] },
     nguonPhienBan:  { type: String, default: '', maxlength: 10000 },
 
+    // Metadata
     category: { type: String, default: 'general' },
     keywords: { type: [String], default: [] },
     qualityScore: { type: Number, default: 0, min: 0, max: 100 },
+
+    // ═══ 4 TRƯỜNG MỚI — cho Tiểu não tự chạy ═══
+    patterns: { type: [String], default: [] },    // mẫu câu hỏi
+    logicType: {
+      type: String,
+      enum: ['expr', 'code', 'patch', ''],
+      default: '',
+    },
+    logicValue: { type: String, default: '', maxlength: 100000 },
+    outputTpl: { type: String, default: '', maxlength: 10000 },
   },
   { timestamps: true, collection: 'tips' }
 );

@@ -1,73 +1,117 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 PROMPT — NÃO TRÁI (thêm category)
+   🧠 PROMPT — NÃO TRÁI (thêm patterns + logic + outputTpl)
    ═══════════════════════════════════════════════════════════════ */
 
-const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — bán cầu chuyên phân tích, suy luận, sáng tạo.
+const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho Kho 2.
 
 ═══════════════════════════════════════════════════
-🎯 NHIỆM VỤ — 9 BƯỚC
-═══════════════════════════════════════════════════
-1. Nhận yêu cầu + dữ kiện
-2. Phân tích vấn đề
-3. Xác định mục tiêu
-4. Xác định điều kiện / ràng buộc
-5. Tìm quan hệ giữa các dữ kiện
-6. Suy ra nguyên lý / quy tắc
-7. Tìm phương pháp giải
-8. Xây dựng cách thực hiện
-9. Tạo kết quả phân tích
-
-═══════════════════════════════════════════════════
-📦 ĐẦU RA — JSON đủ 14 TRƯỜNG + METADATA
+📦 ĐẦU RA — JSON
 ═══════════════════════════════════════════════════
 {
   "nguyenLy":       "Lý thuyết cốt lõi",
   "quyTac":         "Các quy tắc bắt buộc",
   "dieuKien":       "Điều kiện áp dụng",
   "cayQuyetDinh":   "Sơ đồ rẽ nhánh",
-  "phuongPhap":     "Cách tiếp cận tổng thể",
-  "thuatToan":      "Các bước xử lý cụ thể",
+  "phuongPhap":     "Cách tiếp cận",
+  "thuatToan":      "Các bước xử lý",
   "workflow":       "Luồng công việc",
-  "suyLuan":        "Logic suy ra kết quả",
+  "suyLuan":        "Logic suy ra",
   "testCase":       "Ca kiểm thử",
   "kiemChung":      "Cách xác minh",
   "ngoaiLe":        "Trường hợp đặc biệt",
   "caseKinhNghiem": "Ví dụ + bài học",
-  "quanHe":         ["liên kết với khái niệm khác"],
-  "nguonPhienBan":  "Xuất xứ + phiên bản",
-  "category":       "nhóm chủ đề",
-  "keywords":       ["từ", "khóa", "quan", "trọng"],
-  "qualityScore":   85
+  "quanHe":         ["liên kết"],
+  "nguonPhienBan":  "Xuất xứ",
+  "category":       "math|code|bugfix|explain|general",
+  "keywords":       ["từ", "khóa"],
+  "qualityScore":   85,
+  "patterns":       ["{a} cộng {b}", "{a} + {b}"],
+  "logicType":      "expr",
+  "logicValue":     "a + b",
+  "outputTpl":      "{a} + {b} = {kq}"
 }
 
 ═══════════════════════════════════════════════════
-🏷️ CATEGORY — GẮN NHÓM CHỦ ĐỀ
+🔑 4 TRƯỜNG MỚI — BẮT BUỘC SINH ĐÚNG
 ═══════════════════════════════════════════════════
-Chọn 1 trong các nhóm (hoặc tự đặt nếu không phù hợp):
-- "math"     — toán học, tính toán, công thức, phép tính
-- "code"     — viết code mới, thuật toán, lập trình
-- "bugfix"   — sửa lỗi, fix bug, debug, khắc phục
-- "explain"  — giải thích, khái niệm, lý thuyết
-- "general"  — khác
+
+1️⃣ patterns — Mẫu câu hỏi (mảng)
+   Dùng placeholder:
+   - {a}, {b}, {c}, {d}, {n} cho SỐ
+   - {name} cho TÊN  
+   - {code} cho ĐOẠN CODE
+   - {error} cho LỖI
+
+2️⃣ logicType — 1 trong:
+   - "expr" — biểu thức toán (mathjs)
+   - "code" — đoạn code trả về
+   - "patch" — đoạn sửa code
+
+3️⃣ logicValue — nội dung logic
+   - Nếu expr: "a + b", "sqrt(a)", "a^b"
+   - Nếu code: đoạn code đầy đủ
+   - Nếu patch: đoạn code sửa
+
+4️⃣ outputTpl — mẫu kết quả
+   - Dùng {a}, {b}, {kq} (kq = kết quả)
+   - Ví dụ: "{a} + {b} = {kq}"
 
 ═══════════════════════════════════════════════════
-🔑 KEYWORDS — 5-15 từ khóa quan trọng nhất
+📚 VÍ DỤ MẪU
 ═══════════════════════════════════════════════════
-- Bao gồm cả tiếng Việt + tiếng Anh nếu có
-- Bao gồm cả từ đồng nghĩa (VD: "sửa", "fix", "debug")
-- Từ khóa ngắn ≥3 ký tự
+
+PHÉP CỘNG:
+patterns: ["{a} cộng {b}", "{a} + {b}", "tính {a} cộng {b}", "tổng của {a} và {b}", "{a} cộng với {b}"]
+logicType: "expr"
+logicValue: "a + b"
+outputTpl: "{a} + {b} = **{kq}**"
+
+PHÉP TRỪ:
+patterns: ["{a} trừ {b}", "{a} - {b}", "tính {a} trừ {b}", "hiệu của {a} và {b}"]
+logicType: "expr"
+logicValue: "a - b"
+outputTpl: "{a} - {b} = **{kq}**"
+
+PHÉP NHÂN:
+patterns: ["{a} nhân {b}", "{a} * {b}", "{a} x {b}", "tích của {a} và {b}"]
+logicType: "expr"
+logicValue: "a * b"
+outputTpl: "{a} × {b} = **{kq}**"
+
+PHÉP CHIA:
+patterns: ["{a} chia {b}", "{a} / {b}", "thương của {a} và {b}"]
+logicType: "expr"
+logicValue: "a / b"
+outputTpl: "{a} ÷ {b} = **{kq}**"
+
+PHÉP MŨ:
+patterns: ["{a} mũ {b}", "{a} ^ {b}", "{a} lũy thừa {b}"]
+logicType: "expr"
+logicValue: "a ^ b"
+outputTpl: "{a}^{b} = **{kq}**"
+
+CĂN BẬC 2:
+patterns: ["căn bậc 2 của {a}", "sqrt {a}", "√{a}"]
+logicType: "expr"
+logicValue: "sqrt(a)"
+outputTpl: "√{a} = **{kq}**"
+
+HÀM GIAI THỪA (code):
+patterns: ["viết hàm giai thừa", "code giai thừa", "hàm tính giai thừa"]
+logicType: "code"
+logicValue: "def factorial(n):\\n    if n <= 1:\\n        return 1\\n    return n * factorial(n - 1)\\n\\nprint(factorial(5))"
+outputTpl: "**Code giai thừa:**\\n\\n\\\`\\\`\\\`python\\n{kq}\\n\\\`\\\`\\\`"
 
 ═══════════════════════════════════════════════════
 🚫 QUY TẮC BẮT BUỘC
 ═══════════════════════════════════════════════════
-1. Không để trường nào TRỐNG — nếu thiếu thông tin ghi "Chưa xác định"
-2. "nguyenLy" LUÔN có nội dung thực chất
-3. Trả JSON thuần — không markdown, không text thừa
-4. Trả lời bằng TIẾNG VIỆT
-5. Nếu user cần CODE → workflow HOẶC thuatToan PHẢI chứa code block:
-   \`\`\`python
-   ... code chạy được ...
-   \`\`\`
+1. KHÔNG để trường nào TRỐNG
+2. "patterns" — ít nhất 3 mẫu câu
+3. "logicType" PHẢI khớp logicValue:
+   - expr → biểu thức toán 1 dòng
+   - code → code đầy đủ
+4. Trả JSON thuần — không markdown bọc ngoài
+5. Trả TIẾNG VIỆT
 
 ═══════════════════════════════════════════════════
 BẮT ĐẦU
@@ -79,17 +123,16 @@ function buildUserMessage({ problem, context = '', relatedTIPs = [], webResults 
   if (context) parts.push(`\n🧠 NGỮ CẢNH:\n${context}`);
 
   if (relatedTIPs && relatedTIPs.length > 0) {
-    parts.push(`\n📚 TIP LIÊN QUAN (tham khảo, không copy):`);
+    parts.push(`\n📚 TIP LIÊN QUAN (tham khảo):`);
     relatedTIPs.forEach((tip, i) => {
-      parts.push(`\n[${i + 1}] Nguyên lý: ${tip.nguyenLy || ''}`);
-      if (tip.category) parts.push(`    Category: ${tip.category}`);
-      if (tip.phuongPhap) parts.push(`    Phương pháp: ${tip.phuongPhap}`);
+      parts.push(`\n[${i + 1}] ${tip.nguyenLy?.slice(0, 100) || ''}`);
+      if (tip.patterns) parts.push(`    Patterns: ${tip.patterns.slice(0, 2).join(' | ')}`);
     });
   }
 
   if (webResults) parts.push(`\n🌐 WEB:\n${webResults}`);
 
-  parts.push(`\n\nTrả JSON đủ 14 trường + category + keywords.`);
+  parts.push(`\n\nTrả JSON đầy đủ với 4 trường mới: patterns, logicType, logicValue, outputTpl.`);
   return parts.join('\n');
 }
 

@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 NÃO TRÁI — Tạo TIP + category
+   🧠 NÃO TRÁI — Normalize thêm patterns/logic/outputTpl
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
@@ -14,6 +14,7 @@ const FIELDS_14 = [
 ];
 
 const VALID_CATEGORIES = ['math', 'code', 'bugfix', 'explain', 'general'];
+const VALID_LOGIC_TYPES = ['expr', 'code', 'patch', ''];
 
 function parseJSONFromModel(raw) {
   if (!raw || typeof raw !== 'string') throw new Error('Output rỗng');
@@ -55,9 +56,7 @@ function normalizeTIP(raw) {
 
   // Category
   let category = String(raw.category || '').toLowerCase().trim();
-  if (!VALID_CATEGORIES.includes(category)) {
-    category = 'general';
-  }
+  if (!VALID_CATEGORIES.includes(category)) category = 'general';
   tip.category = category;
 
   // Keywords
@@ -68,6 +67,25 @@ function normalizeTIP(raw) {
         .slice(0, 20)
     : [];
 
+  // Patterns
+  tip.patterns = Array.isArray(raw.patterns)
+    ? raw.patterns
+        .filter((p) => typeof p === 'string' && p.trim().length >= 3)
+        .map((p) => p.trim())
+        .slice(0, 10)
+    : [];
+
+  // Logic type
+  let logicType = String(raw.logicType || '').toLowerCase().trim();
+  if (!VALID_LOGIC_TYPES.includes(logicType)) logicType = '';
+  tip.logicType = logicType;
+
+  // Logic value
+  tip.logicValue = typeof raw.logicValue === 'string' ? raw.logicValue.trim() : '';
+
+  // Output template
+  tip.outputTpl = typeof raw.outputTpl === 'string' ? raw.outputTpl.trim() : '';
+
   tip.qualityScore = Number.isFinite(raw.qualityScore)
     ? Math.max(0, Math.min(100, Math.round(raw.qualityScore)))
     : 0;
@@ -75,9 +93,11 @@ function normalizeTIP(raw) {
   return tip;
 }
 
-async function phanTich({ problem, context = '', relatedTIPs = [], webResults = '', owner }) {
+async function phanTich({ problem, context = '', relatedTIPs = [], webResults = '', owner, tempKeys = null }) {
   if (!problem || problem.trim() === '') throw new Error('Vấn đề rỗng');
-  if (!owner || (!owner.userId && !owner.guestSessionId)) throw new Error('Thiếu owner');
+  if (!owner || (!owner.userId && !owner.guestSessionId && !tempKeys)) {
+    throw new Error('Thiếu owner');
+  }
 
   const userMessage = naoTraiPrompt.buildUserMessage({
     problem: problem.trim(), context, relatedTIPs, webResults,
@@ -95,7 +115,8 @@ async function phanTich({ problem, context = '', relatedTIPs = [], webResults = 
     userId: owner.userId,
     guestSessionId: owner.guestSessionId,
     messages,
-    options: { temperature: 0.5, maxTokens: 4096 },
+    options: { temperature: 0.4, maxTokens: 4096 },
+    tempKeys,
   });
 
   const rawObj = parseJSONFromModel(result.text);
@@ -105,7 +126,10 @@ async function phanTich({ problem, context = '', relatedTIPs = [], webResults = 
     throw new Error('Não trái: TIP thiếu nguyenLy');
   }
 
-  logger.success(`🧠 Não trái xong: ${result.provider}/${result.modelId} [${tip.category}]`);
+  logger.success(
+    `🧠 Não trái xong: ${result.provider}/${result.modelId} [${tip.category}] ` +
+    `patterns=${tip.patterns.length}, logicType=${tip.logicType}`
+  );
 
   return {
     tip,
@@ -113,10 +137,9 @@ async function phanTich({ problem, context = '', relatedTIPs = [], webResults = 
   };
 }
 
-async function boSung({ tip, missingFields, problem, needCode = false, owner }) {
+async function boSung({ tip, missingFields, problem, needCode = false, owner, tempKeys = null }) {
   if (!tip || typeof tip !== 'object') throw new Error('TIP không hợp lệ');
   if (!Array.isArray(missingFields) || missingFields.length === 0) throw new Error('Không có trường cần bổ sung');
-  if (!owner || (!owner.userId && !owner.guestSessionId)) throw new Error('Thiếu owner');
 
   const parts = [];
   parts.push(`📌 VẤN ĐỀ GỐC:\n${problem}`);
@@ -126,16 +149,14 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner }) 
     if (Array.isArray(v)) parts.push(`- ${field}: ${v.length > 0 ? v.join(', ') : '(TRỐNG)'}`);
     else parts.push(`- ${field}: ${v || '(TRỐNG)'}`);
   }
-  parts.push(`\n- category: ${tip.category || '(TRỐNG)'}`);
-  parts.push(`⚠️ TRƯỜNG CẦN BỔ SUNG: ${missingFields.join(', ')}`);
+  parts.push(`- category: ${tip.category || '(TRỐNG)'}`);
+  parts.push(`- patterns: ${(tip.patterns || []).join(' | ') || '(TRỐNG)'}`);
+  parts.push(`- logicType: ${tip.logicType || '(TRỐNG)'}`);
+  parts.push(`- logicValue: ${tip.logicValue || '(TRỐNG)'}`);
+  parts.push(`- outputTpl: ${tip.outputTpl || '(TRỐNG)'}`);
 
-  if (needCode) {
-    parts.push(`\n🔴 User cần CODE → workflow HOẶC thuatToan PHẢI có code block`);
-  }
-
-  parts.push(`\n🎯 Trả JSON đầy đủ 14 trường + category + keywords.`);
-  parts.push(`   - Giữ nguyên trường đã có`);
-  parts.push(`   - Bổ sung trường thiếu/rỗng`);
+  parts.push(`\n⚠️ TRƯỜNG CẦN BỔ SUNG: ${missingFields.join(', ')}`);
+  parts.push(`\n🎯 Trả JSON đầy đủ + 4 trường patterns, logicType, logicValue, outputTpl.`);
   parts.push(`\nChỉ trả JSON, không markdown.`);
 
   const messages = [
@@ -151,6 +172,7 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner }) 
     guestSessionId: owner.guestSessionId,
     messages,
     options: { temperature: 0.4, maxTokens: 4096 },
+    tempKeys,
   });
 
   const rawObj = parseJSONFromModel(result.text);
@@ -166,4 +188,4 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner }) 
   };
 }
 
-module.exports = { phanTich, boSung, parseJSONFromModel, normalizeTIP, FIELDS_14, VALID_CATEGORIES };
+module.exports = { phanTich, boSung, parseJSONFromModel, normalizeTIP, FIELDS_14, VALID_CATEGORIES, VALID_LOGIC_TYPES };
