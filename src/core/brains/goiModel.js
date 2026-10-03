@@ -1,7 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    📞 GỌI MODEL — fallback tự động (NT9, NP9, TU7)
-   - Sort key theo quota hiệu dụng (đã xét TTL)
-   - Ưu tiên key >0% quota
+   - Sort key theo quota (chỉ ưu tiên, KHÔNG skip)
    - Nhận options.excludeModels để blacklist model lỗi
    ═══════════════════════════════════════════════════════════════ */
 
@@ -53,9 +52,6 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
   const excludeModels = new Set(
     Array.isArray(options.excludeModels) ? options.excludeModels : []
   );
-  if (excludeModels.size > 0) {
-    logger.debug(`🚫 Blacklist ${excludeModels.size} model: ${[...excludeModels].join(', ')}`);
-  }
 
   const keys = await loadAliveKeys(side, userId, guestSessionId);
   if (keys.length === 0) {
@@ -71,7 +67,7 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
     alive: true,
   }).lean();
 
-  // [MỚI] Sort key theo quota hiệu dụng (đã xét TTL) — cao trước
+  // Sort key theo quota (chỉ ưu tiên, KHÔNG skip)
   for (const k of keysWithModels) {
     k._quotaHieuDung = quotaTracker.layQuotaHieuDung(k);
   }
@@ -94,7 +90,7 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
     const providerKeys = keysByProvider[provider];
 
     while (true) {
-      const picked = pickNextModel(provider, providerKeys, triedModels, quotaTracker);
+      const picked = pickNextModel(provider, providerKeys, triedModels);
       if (!picked) break;
 
       const { modelId, keys: keyCandidates } = picked;
@@ -107,15 +103,8 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
         const keyData = keysWithModels.find((k) => String(k._id) === keyIdStr);
         if (!keyData) continue;
 
-        // Skip key có quota hiệu dụng = 0
-        if (keyData._quotaHieuDung === 0) {
-          logger.debug(`⏭️ Skip key ${keyIdStr} (quota=0)`);
-          triedKeys.add(`${keyIdStr}:${modelId}`);
-          continue;
-        }
-
         try {
-          logger.debug(`Gọi ${provider}/${modelId} với key ${keyIdStr} (quota=${keyData._quotaHieuDung}%)`);
+          logger.debug(`Gọi ${provider}/${modelId} với key ${keyIdStr}`);
 
           const result = await ADAPTERS[provider].chat(
             keyData.keyValue, modelId, messages, options
@@ -159,7 +148,7 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
 
   throw new Error(
     `Não ${side === 'left' ? 'trái' : 'phải'}: tất cả model thất bại (${triedModels.size} model). ` +
-    `Chi tiết: ${lastErrors.slice(-3).join(' | ')}`
+    `Chi tiết: ${lastErrors.slice(-5).join(' | ')}`
   );
 }
 
