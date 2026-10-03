@@ -1,5 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
-   📁 PROJECT CONTROLLER (PJ1–PJ6)
+   📁 PROJECT CONTROLLER (PJ1–PJ7)
+   - Thêm getConversations — lấy danh sách conv của 1 project
    ═══════════════════════════════════════════════════════════════ */
 
 const Project = require('../models/project.model');
@@ -11,6 +12,10 @@ function getOwner(req) {
   if (req.guest && req.guest.sessionId) return { userId: null, guestSessionId: req.guest.sessionId };
   return null;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   GET /api/project — List dự án
+   ═══════════════════════════════════════════════════════════════ */
 
 async function list(req, res) {
   const owner = getOwner(req);
@@ -29,6 +34,10 @@ async function list(req, res) {
     })),
   });
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   POST /api/project — Tạo dự án
+   ═══════════════════════════════════════════════════════════════ */
 
 async function create(req, res) {
   const owner = getOwner(req);
@@ -55,6 +64,10 @@ async function create(req, res) {
   });
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   PUT /api/project/:id — Đổi tên
+   ═══════════════════════════════════════════════════════════════ */
+
 async function rename(req, res) {
   const owner = getOwner(req);
   if (!owner) return res.status(401).json({ error: 'Cần đăng nhập hoặc guest session' });
@@ -77,6 +90,10 @@ async function rename(req, res) {
   res.json({ project: { id: project._id.toString(), name: project.name } });
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   DELETE /api/project/:id — Xóa
+   ═══════════════════════════════════════════════════════════════ */
+
 async function remove(req, res) {
   const owner = getOwner(req);
   if (!owner) return res.status(401).json({ error: 'Cần đăng nhập hoặc guest session' });
@@ -94,6 +111,10 @@ async function remove(req, res) {
   await Conversation.updateMany({ projectId: id }, { $set: { projectId: null } });
   res.json({ success: true, deletedId: id });
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   PUT /api/project/:id/move — Chuyển conv vào project
+   ═══════════════════════════════════════════════════════════════ */
 
 async function moveConversation(req, res) {
   const owner = getOwner(req);
@@ -133,4 +154,52 @@ async function moveConversation(req, res) {
   res.json({ success: true });
 }
 
-module.exports = { list, create, rename, remove, moveConversation };
+/* ═══════════════════════════════════════════════════════════════
+   [MỚI] GET /api/project/:id/conversations
+   Lấy danh sách conversation của 1 dự án
+   ═══════════════════════════════════════════════════════════════ */
+
+async function getConversations(req, res) {
+  const owner = getOwner(req);
+  if (!owner) return res.status(401).json({ error: 'Cần đăng nhập hoặc guest session' });
+
+  const { id } = req.params;
+  if (!validator.isObjectId(id)) return res.status(400).json({ error: 'ID không hợp lệ' });
+
+  const ownerQuery = owner.userId
+    ? { userId: owner.userId }
+    : { guestSessionId: owner.guestSessionId };
+
+  const project = await Project.findOne({ _id: id, ...ownerQuery }).lean();
+  if (!project) return res.status(404).json({ error: 'Không tìm thấy dự án' });
+
+  const convs = await Conversation.find({ projectId: id, ...ownerQuery })
+    .sort({ lastMessageAt: -1 })
+    .limit(50)
+    .lean();
+
+  res.json({
+    project: {
+      id: project._id.toString(),
+      name: project.name,
+      description: project.description,
+      conversationCount: project.conversationCount || convs.length,
+    },
+    items: convs.map((c) => ({
+      id: c._id.toString(),
+      title: c.title || 'Cuộc trò chuyện mới',
+      messageCount: c.messageCount || 0,
+      lastMessageAt: c.lastMessageAt,
+      createdAt: c.createdAt,
+    })),
+  });
+}
+
+module.exports = {
+  list,
+  create,
+  rename,
+  remove,
+  moveConversation,
+  getConversations,
+};

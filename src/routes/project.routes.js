@@ -1,5 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
-   📁 PROJECT ROUTES (PJ1–PJ6)
+   📁 PROJECT ROUTES (PJ1–PJ7)
+   - Thêm GET /:id/conversations
    ═══════════════════════════════════════════════════════════════ */
 
 const express = require('express');
@@ -13,6 +14,10 @@ router.use(optionalAuth);
 
 router.get('/', asyncHandler(projectController.list));
 router.post('/', asyncHandler(projectController.create));
+
+// [MỚI] Lấy danh sách conversation của 1 dự án
+router.get('/:id/conversations', asyncHandler(projectController.getConversations));
+
 router.put('/:id', asyncHandler(projectController.rename));
 router.delete('/:id', asyncHandler(projectController.remove));
 router.put('/:id/move', asyncHandler(projectController.moveConversation));

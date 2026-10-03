@@ -1,5 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
    🐉 RỒNG THẦN — FRONTEND LOGIC
+   - Logo theme SVG: mặt trăng (tối) ↔ mặt trời (sáng)
+   - Menu Người dùng theo trạng thái đăng nhập
+   - Preview ảnh/file + vẽ tay
    ═══════════════════════════════════════════════════════════════ */
 
 const API = {
@@ -17,6 +20,7 @@ const API = {
   recentList:    '/api/recent',
   projectList:   '/api/project',
   projectCreate: '/api/project',
+  projectConvs:  (id) => `/api/project/${id}/conversations`,
   shareCreate:   '/api/share',
   settingsPw:    '/api/settings/password',
   settingsDel:   '/api/settings/account',
@@ -24,6 +28,27 @@ const API = {
   fileSend:      '/api/file',
   imageSend:     '/api/upload',
 };
+
+const CHAO_AI = 'Nói điều ước đi 🔥🐉';
+
+/* ═══ SVG LOGO ═══ */
+const SVG_MOON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+</svg>`;
+
+const SVG_SUN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="12" r="4"/>
+  <path d="M12 2v2"/>
+  <path d="M12 20v2"/>
+  <path d="m4.93 4.93 1.41 1.41"/>
+  <path d="m17.66 17.66 1.41 1.41"/>
+  <path d="M2 12h2"/>
+  <path d="M20 12h2"/>
+  <path d="m6.34 17.66-1.41 1.41"/>
+  <path d="m19.07 4.93-1.41 1.41"/>
+</svg>`;
 
 const $ = (s) => document.querySelector(s);
 
@@ -37,6 +62,7 @@ const btnRight       = $('#btn-right');
 const menuLeft       = $('#menu-left');
 const menuRight      = $('#menu-right');
 const btnTheme       = $('#btn-theme');
+const themeIcon      = $('#theme-icon');
 const btnUserToggle  = $('#btn-user-toggle');
 const userSub        = $('#user-sub');
 const toast          = $('#toast');
@@ -44,6 +70,8 @@ const keysLeftEl     = $('#keys-left');
 const keysRightEl    = $('#keys-right');
 const fileInputImage = $('#file-input-image');
 const fileInputFile  = $('#file-input-file');
+const previewArea    = $('#preview-area');
+const previewList    = $('#preview-list');
 
 let isSending = false;
 let toastTimer = null;
@@ -52,6 +80,13 @@ let audioChunks = [];
 let isRecording = false;
 let currentConversationId = null;
 let authMode = 'login';
+
+/* Trạng thái đăng nhập */
+let isLoggedIn = false;
+
+/* Hàng chờ đính kèm */
+let pendingAttachments = [];
+let attachmentIdCounter = 0;
 
 /* ═══ GUEST TOKEN ═══ */
 function getGuestToken() { return localStorage.getItem('rongthan_guest_token'); }
@@ -127,13 +162,96 @@ function appendMessage(role, text, opts = {}) {
 
 function clearChat() { chatMessages.innerHTML = ''; }
 
+/* ═══ PREVIEW — ảnh/file ═══ */
+function renderPreview() {
+  previewList.innerHTML = '';
+
+  if (pendingAttachments.length === 0) {
+    previewArea.classList.add('hidden');
+    return;
+  }
+
+  previewArea.classList.remove('hidden');
+
+  pendingAttachments.forEach((item) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'preview-item';
+
+    if (item.type === 'image') {
+      const img = document.createElement('img');
+      img.className = 'preview-thumb';
+      img.src = item.previewUrl;
+      img.alt = 'Ảnh';
+      img.addEventListener('click', () => openDrawModal(item.id));
+      wrap.appendChild(img);
+    } else {
+      const fileBox = document.createElement('div');
+      fileBox.className = 'preview-file';
+
+      const icon = document.createElement('div');
+      icon.className = 'preview-file-icon';
+      icon.textContent = '📄';
+
+      const name = document.createElement('div');
+      name.className = 'preview-file-name';
+      name.textContent = item.file.name || 'file';
+
+      fileBox.append(icon, name);
+      wrap.appendChild(fileBox);
+    }
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'preview-remove';
+    removeBtn.textContent = '✕';
+    removeBtn.setAttribute('aria-label', 'Xóa');
+    removeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeAttachment(item.id);
+    });
+
+    wrap.appendChild(removeBtn);
+    previewList.appendChild(wrap);
+  });
+}
+
+function removeAttachment(id) {
+  const idx = pendingAttachments.findIndex((a) => a.id === id);
+  if (idx === -1) return;
+
+  const item = pendingAttachments[idx];
+  if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+
+  pendingAttachments.splice(idx, 1);
+  renderPreview();
+}
+
+function clearAttachments() {
+  pendingAttachments.forEach((a) => {
+    if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+  });
+  pendingAttachments = [];
+  renderPreview();
+}
+
+function addAttachment(file, type) {
+  const id = ++attachmentIdCounter;
+  const previewUrl = type === 'image' ? URL.createObjectURL(file) : null;
+
+  pendingAttachments.push({ id, file, type, previewUrl });
+  renderPreview();
+}
+
+/* ═══ SEND MESSAGE ═══ */
 async function sendMessage(overrideText, metadata = null) {
   if (isSending) return;
 
   const text = (overrideText != null ? overrideText : msgInput.value).trim();
-  if (!text) return;
+  const hasAttachments = pendingAttachments.length > 0;
+  if (!text && !hasAttachments && !metadata) return;
 
-  appendMessage('user', text);
+  const displayText = text || (hasAttachments ? `[${pendingAttachments.length} tệp]` : '');
+  appendMessage('user', displayText);
+
   if (overrideText == null) {
     msgInput.value = '';
     autoResize();
@@ -143,19 +261,78 @@ async function sendMessage(overrideText, metadata = null) {
   isSending = true;
   btnSend.disabled = true;
 
+  const attachmentsToSend = [...pendingAttachments];
+  clearAttachments();
+
   try {
-    const body = { message: text, conversationId: currentConversationId };
+    const uploadedItems = [];
+
+    for (const att of attachmentsToSend) {
+      try {
+        const formData = new FormData();
+        formData.append('file', att.file);
+
+        const endpoint = att.type === 'image' ? API.imageSend : API.fileSend;
+        const upRes = await apiFetch(endpoint, { method: 'POST', body: formData });
+
+        if (!upRes.ok) {
+          const err = await upRes.json().catch(() => ({}));
+          throw new Error(err.error || `HTTP ${upRes.status}`);
+        }
+
+        const upData = await upRes.json();
+
+        if (att.type === 'image') {
+          uploadedItems.push({
+            type: 'image',
+            imageDescription: upData.imageDescription || upData.text || '',
+          });
+        } else {
+          uploadedItems.push({
+            type: 'file',
+            fileName: upData.fileName || att.file.name,
+            fileType: upData.fileType || att.file.type,
+            fileText: upData.fileText || upData.text || '',
+          });
+        }
+      } catch (err) {
+        console.warn('Upload attachment lỗi:', err.message);
+      }
+    }
+
+    const body = {
+      message: text || (uploadedItems.length > 0 ? `[${uploadedItems.length} tệp]` : ''),
+      conversationId: currentConversationId,
+    };
+
+    const hasImage = uploadedItems.some((u) => u.type === 'image');
+    const hasFile = uploadedItems.some((u) => u.type === 'file');
+
+    if (hasImage) {
+      const img = uploadedItems.find((u) => u.type === 'image');
+      body.hasImage = true;
+      body.imageDescription = img.imageDescription;
+    }
+
+    if (hasFile) {
+      const f = uploadedItems.find((u) => u.type === 'file');
+      body.hasFile = true;
+      body.fileName = f.fileName;
+      body.fileType = f.fileType;
+      body.fileText = f.fileText;
+    }
+
     if (metadata) {
+      if (metadata.hasVoice) body.hasVoice = true;
       if (metadata.hasImage) {
         body.hasImage = true;
-        body.imageDescription = metadata.imageDescription || '';
+        body.imageDescription = metadata.imageDescription || body.imageDescription || '';
       }
-      if (metadata.hasVoice) body.hasVoice = true;
       if (metadata.hasFile) {
         body.hasFile = true;
-        body.fileName = metadata.fileName || '';
-        body.fileType = metadata.fileType || '';
-        body.fileText = metadata.fileText || '';
+        body.fileName = metadata.fileName || body.fileName || '';
+        body.fileType = metadata.fileType || body.fileType || '';
+        body.fileText = metadata.fileText || body.fileText || '';
       }
     }
 
@@ -219,8 +396,13 @@ document.addEventListener('keydown', (e) => {
 
 /* ═══ THEME ═══ */
 function applyTheme(theme) {
-  if (theme === 'light') document.body.classList.add('light');
-  else document.body.classList.remove('light');
+  if (theme === 'light') {
+    document.body.classList.add('light');
+    if (themeIcon) themeIcon.innerHTML = SVG_SUN;
+  } else {
+    document.body.classList.remove('light');
+    if (themeIcon) themeIcon.innerHTML = SVG_MOON;
+  }
   localStorage.setItem('rongthan_theme', theme);
 }
 
@@ -236,6 +418,47 @@ btnUserToggle.addEventListener('click', () => {
   userSub.classList.toggle('hidden');
   btnUserToggle.classList.toggle('active');
 });
+
+/**
+ * Cập nhật hiển thị menu Người dùng theo trạng thái đăng nhập.
+ */
+function updateUserMenu() {
+  const btnLogin = $('#btn-login');
+  const btnRegister = $('#btn-register');
+  const btnGuest = $('#btn-guest');
+  const btnLogout = $('#btn-logout');
+
+  if (isLoggedIn) {
+    // Đã đăng nhập → chỉ hiện Đăng xuất
+    btnLogin.classList.add('hidden');
+    btnRegister.classList.add('hidden');
+    btnGuest.classList.add('hidden');
+    btnLogout.classList.remove('hidden');
+  } else {
+    // Chưa đăng nhập / khách → hiện Đăng nhập + Đăng ký + Khách, ẩn Đăng xuất
+    btnLogin.classList.remove('hidden');
+    btnRegister.classList.remove('hidden');
+    btnGuest.classList.remove('hidden');
+    btnLogout.classList.add('hidden');
+  }
+}
+
+/**
+ * Kiểm tra trạng thái đăng nhập từ server.
+ */
+async function checkAuthStatus() {
+  try {
+    const res = await apiFetch(API.authMe);
+    if (res.ok) {
+      isLoggedIn = true;
+    } else {
+      isLoggedIn = false;
+    }
+  } catch {
+    isLoggedIn = false;
+  }
+  updateUserMenu();
+}
 
 /* ═══ BRAIN KEYS ═══ */
 function renderKeys(containerEl, keys) {
@@ -351,7 +574,7 @@ async function deleteBrainKey(id) {
 $('#btn-run-left').addEventListener('click', () => addBrainKey('left'));
 $('#btn-run-right').addEventListener('click', () => addBrainKey('right'));
 
-/* ═══ RECENT + PROJECT ═══ */
+/* ═══ RECENT ═══ */
 async function loadRecent() {
   const list = $('#recent-list');
   try {
@@ -379,6 +602,7 @@ async function loadRecent() {
   }
 }
 
+/* ═══ PROJECTS ═══ */
 async function loadProjects() {
   const list = $('#project-list');
   try {
@@ -398,10 +622,61 @@ async function loadProjects() {
       btn.className = 'menu-item sub';
       btn.textContent = item.name || 'Dự án';
       btn.dataset.id = item.id;
+      btn.addEventListener('click', () => openProject(item.id, item.name));
       list.appendChild(btn);
     });
   } catch {
     list.innerHTML = '<div class="menu-empty">Không tải được</div>';
+  }
+}
+
+async function openProject(projectId, projectName = '') {
+  try {
+    const res = await apiFetch(API.projectConvs(projectId));
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    const items = data.items || [];
+
+    const list = $('#recent-list');
+    list.innerHTML = '';
+
+    const backBtn = document.createElement('button');
+    backBtn.className = 'menu-item sub';
+    backBtn.textContent = '← Quay lại gần đây';
+    backBtn.addEventListener('click', () => loadRecent());
+    list.appendChild(backBtn);
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'menu-empty';
+    titleEl.style.fontStyle = 'normal';
+    titleEl.style.color = 'var(--accent)';
+    titleEl.textContent = `📁 ${projectName || data.project?.name || 'Dự án'}`;
+    list.appendChild(titleEl);
+
+    if (items.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'menu-empty';
+      empty.textContent = 'Dự án chưa có cuộc trò chuyện';
+      list.appendChild(empty);
+      return;
+    }
+
+    items.forEach((item) => {
+      const btn = document.createElement('button');
+      btn.className = 'menu-item sub';
+      btn.textContent = item.title || 'Cuộc trò chuyện';
+      btn.dataset.id = item.id;
+      btn.addEventListener('click', () => {
+        openConversation(item.id);
+        closeMenu('left');
+      });
+      list.appendChild(btn);
+    });
+  } catch (err) {
+    showToast('Không mở được dự án: ' + err.message);
   }
 }
 
@@ -428,7 +703,8 @@ async function openConversation(id) {
 $('#btn-new-chat').addEventListener('click', () => {
   currentConversationId = null;
   clearChat();
-  appendMessage('ai', 'Xin chào! Ta là Rồng Thần. Ngươi cần gì?');
+  clearAttachments();
+  appendMessage('ai', CHAO_AI);
   closeMenu('left');
 });
 
@@ -614,8 +890,15 @@ function openAuthModal() {
   authUsername.focus();
 }
 
+/* Nút Đăng nhập */
 $('#btn-login').addEventListener('click', () => {
   authMode = 'login';
+  openAuthModal();
+});
+
+/* Nút Đăng ký */
+$('#btn-register').addEventListener('click', () => {
+  authMode = 'register';
   openAuthModal();
 });
 
@@ -645,15 +928,15 @@ authSubmit.addEventListener('click', async () => {
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
     if (authMode === 'register') {
-      // Register thành công — KHÔNG auto login
       showToast(data.message || 'Đăng ký thành công — vui lòng đăng nhập');
       authMode = 'login';
       openAuthModal();
     } else {
-      // Login thành công
       modalAuth.classList.add('hidden');
       showToast('Đã đăng nhập');
       closeMenu('left');
+      isLoggedIn = true;
+      updateUserMenu();
       loadKeys();
       loadRecent();
       loadProjects();
@@ -672,6 +955,8 @@ $('#btn-logout').addEventListener('click', async () => {
   try {
     await apiFetch(API.authLogout, { method: 'POST' });
     showToast('Đã đăng xuất');
+    isLoggedIn = false;
+    updateUserMenu();
     closeMenu('left');
     setTimeout(() => location.reload(), 500);
   } catch (err) {
@@ -723,49 +1008,198 @@ $('#attach-choose-file').addEventListener('click', () => {
 });
 
 fileInputImage.addEventListener('change', () => {
-  const file = fileInputImage.files[0];
-  if (file) handleUpload(file, 'image');
+  const files = Array.from(fileInputImage.files || []);
+  files.forEach((f) => addAttachment(f, 'image'));
   fileInputImage.value = '';
 });
 
 fileInputFile.addEventListener('change', () => {
-  const file = fileInputFile.files[0];
-  if (file) handleUpload(file, 'file');
+  const files = Array.from(fileInputFile.files || []);
+  files.forEach((f) => addAttachment(f, 'file'));
   fileInputFile.value = '';
 });
 
-async function handleUpload(file, type) {
-  const endpoint = type === 'image' ? API.imageSend : API.fileSend;
-  const formData = new FormData();
-  formData.append('file', file);
+/* ═══ MODAL VẼ ẢNH ═══ */
+const modalDraw = $('#modal-draw');
+const drawCanvas = $('#draw-canvas');
+const drawUndo = $('#draw-undo');
+const drawDone = $('#draw-done');
+const drawCancel = $('#draw-cancel');
+const drawTools = document.querySelectorAll('.draw-tool');
 
-  const pendingMsg = appendMessage('ai', 'Đang xử lý', { pending: true });
+let drawing = false;
+let currentColor = '#ef4444';
+let currentAttachmentId = null;
+let strokes = [];
+let currentStroke = null;
+let canvasCtx = null;
 
-  try {
-    const res = await apiFetch(endpoint, { method: 'POST', body: formData });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${res.status}`);
+function openDrawModal(attachmentId) {
+  const att = pendingAttachments.find((a) => a.id === attachmentId);
+  if (!att || att.type !== 'image') return;
+
+  currentAttachmentId = attachmentId;
+
+  const img = new Image();
+  img.onload = () => {
+    const wrap = drawCanvas.parentElement;
+    const wrapW = wrap.clientWidth;
+    const wrapH = wrap.clientHeight;
+    const ratio = Math.min(wrapW / img.width, wrapH / img.height);
+
+    const w = Math.floor(img.width * ratio);
+    const h = Math.floor(img.height * ratio);
+
+    drawCanvas.width = w;
+    drawCanvas.height = h;
+    drawCanvas.style.width = w + 'px';
+    drawCanvas.style.height = h + 'px';
+
+    canvasCtx = drawCanvas.getContext('2d');
+    canvasCtx.lineCap = 'round';
+    canvasCtx.lineJoin = 'round';
+    canvasCtx.lineWidth = Math.max(3, Math.round(w / 100));
+
+    canvasCtx.drawImage(img, 0, 0, w, h);
+
+    strokes = [];
+    currentStroke = null;
+
+    modalDraw.classList.remove('hidden');
+  };
+  img.src = att.previewUrl;
+}
+
+function redrawCanvas(img) {
+  if (!canvasCtx) return;
+  canvasCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  if (img) canvasCtx.drawImage(img, 0, 0, drawCanvas.width, drawCanvas.height);
+
+  for (const stroke of strokes) {
+    if (stroke.points.length < 2) continue;
+    canvasCtx.strokeStyle = stroke.color;
+    canvasCtx.lineWidth = stroke.width;
+    canvasCtx.beginPath();
+    canvasCtx.moveTo(stroke.points[0].x, stroke.points[0].y);
+    for (let i = 1; i < stroke.points.length; i++) {
+      canvasCtx.lineTo(stroke.points[i].x, stroke.points[i].y);
     }
-
-    const data = await res.json();
-    pendingMsg.remove();
-
-    const caption = msgInput.value.trim();
-    const displayText = caption || (type === 'image' ? '[Ảnh]' : `[File: ${file.name}]`);
-    msgInput.value = '';
-    autoResize();
-
-    const metadata = type === 'image'
-      ? { hasImage: true, imageDescription: data.imageDescription || data.text }
-      : { hasFile: true, fileName: data.fileName, fileType: data.fileType, fileText: data.fileText || data.text };
-
-    await sendMessage(displayText, metadata);
-  } catch (err) {
-    pendingMsg.remove();
-    appendMessage('ai', '⚠️ Lỗi: ' + err.message, { error: true });
+    canvasCtx.stroke();
   }
 }
+
+function getCanvasPos(e) {
+  const rect = drawCanvas.getBoundingClientRect();
+  const touch = e.touches ? e.touches[0] : e;
+  return {
+    x: (touch.clientX - rect.left) * (drawCanvas.width / rect.width),
+    y: (touch.clientY - rect.top) * (drawCanvas.height / rect.height),
+  };
+}
+
+function startDraw(e) {
+  e.preventDefault();
+  drawing = true;
+  const pos = getCanvasPos(e);
+  currentStroke = {
+    color: currentColor,
+    width: canvasCtx.lineWidth,
+    points: [pos],
+  };
+  strokes.push(currentStroke);
+}
+
+function moveDraw(e) {
+  if (!drawing || !currentStroke) return;
+  e.preventDefault();
+  const pos = getCanvasPos(e);
+  currentStroke.points.push(pos);
+
+  const pts = currentStroke.points;
+  if (pts.length >= 2) {
+    canvasCtx.strokeStyle = currentStroke.color;
+    canvasCtx.lineWidth = currentStroke.width;
+    canvasCtx.beginPath();
+    canvasCtx.moveTo(pts[pts.length - 2].x, pts[pts.length - 2].y);
+    canvasCtx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    canvasCtx.stroke();
+  }
+}
+
+function endDraw(e) {
+  if (e) e.preventDefault();
+  drawing = false;
+  currentStroke = null;
+}
+
+drawCanvas.addEventListener('mousedown', startDraw);
+drawCanvas.addEventListener('mousemove', moveDraw);
+drawCanvas.addEventListener('mouseup', endDraw);
+drawCanvas.addEventListener('mouseleave', endDraw);
+drawCanvas.addEventListener('touchstart', startDraw, { passive: false });
+drawCanvas.addEventListener('touchmove', moveDraw, { passive: false });
+drawCanvas.addEventListener('touchend', endDraw);
+drawCanvas.addEventListener('touchcancel', endDraw);
+
+drawTools.forEach((tool) => {
+  tool.addEventListener('click', () => {
+    drawTools.forEach((t) => t.classList.remove('active'));
+    tool.classList.add('active');
+    currentColor = tool.dataset.color || '#ef4444';
+  });
+});
+
+drawUndo.addEventListener('click', () => {
+  if (strokes.length === 0) return;
+  strokes.pop();
+
+  const att = pendingAttachments.find((a) => a.id === currentAttachmentId);
+  if (!att) return;
+
+  const img = new Image();
+  img.onload = () => redrawCanvas(img);
+  img.src = att.previewUrl;
+});
+
+drawCancel.addEventListener('click', () => {
+  modalDraw.classList.add('hidden');
+  currentAttachmentId = null;
+  strokes = [];
+});
+
+drawDone.addEventListener('click', () => {
+  if (!currentAttachmentId) return;
+
+  drawCanvas.toBlob((blob) => {
+    if (!blob) {
+      showToast('Không xuất được ảnh');
+      return;
+    }
+
+    const idx = pendingAttachments.findIndex((a) => a.id === currentAttachmentId);
+    if (idx === -1) return;
+
+    const oldItem = pendingAttachments[idx];
+    const newFile = new File([blob], oldItem.file.name || 'image.png', { type: 'image/png' });
+
+    if (oldItem.previewUrl) URL.revokeObjectURL(oldItem.previewUrl);
+
+    const newPreviewUrl = URL.createObjectURL(blob);
+
+    pendingAttachments[idx] = {
+      id: oldItem.id,
+      file: newFile,
+      type: 'image',
+      previewUrl: newPreviewUrl,
+    };
+
+    renderPreview();
+    modalDraw.classList.add('hidden');
+    currentAttachmentId = null;
+    strokes = [];
+    showToast('Đã lưu ảnh vẽ');
+  }, 'image/png');
+});
 
 /* ═══ VOICE ═══ */
 btnMic.addEventListener('click', toggleRecording);
@@ -859,7 +1293,8 @@ $('#delete-conv-confirm').addEventListener('click', async () => {
     modalDeleteConv.classList.add('hidden');
     currentConversationId = null;
     clearChat();
-    appendMessage('ai', 'Xin chào! Ta là Rồng Thần. Ngươi cần gì?');
+    clearAttachments();
+    appendMessage('ai', CHAO_AI);
     showToast('Đã xóa cuộc trò chuyện');
     loadRecent();
   } catch (err) {
@@ -882,9 +1317,10 @@ function showToast(text) {
 }
 
 /* ═══ INIT ═══ */
-function init() {
+async function init() {
   setupViewportHeight();
   autoResize();
+  await checkAuthStatus();
   loadKeys();
   loadRecent();
   loadProjects();
