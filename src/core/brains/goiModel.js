@@ -92,7 +92,6 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
     const triedModelsInProvider = new Set(); // [MỚI] reset cho mỗi provider
 
     let providerHadAttempt = false;
-    let providerSuccess = false;
 
     while (true) {
       const picked = pickNextModel(provider, providerKeys, triedModelsInProvider);
@@ -152,7 +151,7 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
     }
 
     // [MỚI] Log rõ khi provider fail hết
-    if (providerHadAttempt && !providerSuccess) {
+    if (providerHadAttempt) {
       const nextProvider = providerOrder[pi + 1];
       if (nextProvider) {
         logger.warn(`⚠️ Provider ${provider} fail hết model → chuyển sang ${nextProvider}`);
