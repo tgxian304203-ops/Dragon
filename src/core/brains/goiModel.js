@@ -1,5 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    📞 GỌI MODEL — fallback tự động (NT9, NP9, TU7)
+   - Nhận options.excludeModels để blacklist model lỗi
    ═══════════════════════════════════════════════════════════════ */
 
 const BrainKey = require('../../models/brainKey.model');
@@ -47,6 +48,14 @@ async function ensureModels(side, key) {
 async function callModel({ side, userId, guestSessionId, messages, options = {} }) {
   if (!['left', 'right'].includes(side)) throw new Error('side phải là left/right');
 
+  // ═══ [MỚI] Blacklist model từ options ═══
+  const excludeModels = new Set(
+    Array.isArray(options.excludeModels) ? options.excludeModels : []
+  );
+  if (excludeModels.size > 0) {
+    logger.debug(`🚫 Blacklist ${excludeModels.size} model: ${[...excludeModels].join(', ')}`);
+  }
+
   const keys = await loadAliveKeys(side, userId, guestSessionId);
   if (keys.length === 0) {
     throw new Error(`Não ${side === 'left' ? 'trái' : 'phải'} chưa có key nào hoạt động`);
@@ -68,8 +77,13 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
     throw new Error(`Không có key ${side} nào có model khả dụng`);
   }
 
-  const triedModels = new Set();
+  logger.debug(`🎯 Provider order: ${providerOrder.join(' → ')}`);
+
+  // ═══ [MỚI] Khởi tạo triedModels với blacklist ═══
+  const triedModels = new Set(excludeModels);
   const triedKeys = new Set();
+
+  const lastErrors = [];
 
   for (const provider of providerOrder) {
     const providerKeys = keysByProvider[provider];
@@ -113,6 +127,7 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
           const status = err.status;
 
           logger.warn(`Lỗi ${provider}/${modelId} (key ${keyIdStr}): ${err.message}`);
+          lastErrors.push(`${provider}/${modelId}: ${err.message}`);
 
           if (status === 401 || status === 403) {
             await BrainKey.updateOne({ _id: keyInfo.keyId }, { $set: { alive: false } });
@@ -131,7 +146,8 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
   }
 
   throw new Error(
-    `Não ${side === 'left' ? 'trái' : 'phải'}: tất cả model thất bại (${triedModels.size} model)`
+    `Não ${side === 'left' ? 'trái' : 'phải'}: tất cả model thất bại (${triedModels.size} model). ` +
+    `Chi tiết: ${lastErrors.slice(-3).join(' | ')}`
   );
 }
 

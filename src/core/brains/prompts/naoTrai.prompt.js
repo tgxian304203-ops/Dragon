@@ -5,6 +5,15 @@
 const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho Kho 2.
 
 ═══════════════════════════════════════════════════
+🚨 QUY TẮC OUTPUT — BẮT BUỘC
+═══════════════════════════════════════════════════
+1. CHỈ trả về JSON THUẦN.
+2. KHÔNG bọc trong \`\`\`json ... \`\`\` hay markdown.
+3. Ký tự ĐẦU TIÊN phải là { và ký tự CUỐI CÙNG phải là }.
+4. KHÔNG có text, giải thích, lời chào trước hoặc sau JSON.
+5. Nếu không chắc, vẫn phải trả JSON đúng cấu trúc.
+
+═══════════════════════════════════════════════════
 📦 ĐẦU RA — JSON
 ═══════════════════════════════════════════════════
 {
@@ -32,8 +41,7 @@ const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho
   "outputTpl":      "{a} + {b} = **{kq}**",
 
   "tests": [
-    { "input": { "a": 5, "b": 3 }, "expected": 8 },
-    { "input": { "a": 100, "b": 200 }, "expected": 300 }
+    { "input": { "a": 5, "b": 3 }, "expected": 8 }
   ]
 }
 
@@ -93,15 +101,16 @@ HÀM GIAI THỪA (code):
 ═══════════════════════════════════════════════════
 🚫 QUY TẮC BẮT BUỘC
 ═══════════════════════════════════════════════════
-1. Trả JSON THUẦN — không markdown bọc
-2. patterns PHẢI có ít nhất 3 mẫu
-3. logicValue PHẢI khớp logicType
-4. outputTpl PHẢI có {kq}
-5. tests PHẢI có ít nhất 1 case nếu logicType="expr"
-6. TIẾNG VIỆT
+1. Trả JSON THUẦN — KHÔNG markdown, KHÔNG text rác.
+2. patterns PHẢI có ít nhất 3 mẫu.
+3. logicValue PHẢI khớp logicType.
+4. outputTpl PHẢI có {kq}.
+5. tests PHẢI có ít nhất 1 case nếu logicType="expr".
+6. TIẾNG VIỆT.
+7. Ký tự đầu = {, ký tự cuối = }.
 
 ═══════════════════════════════════════════════════
-BẮT ĐẦU
+BẮT ĐẦU TRẢ JSON NGAY (KHÔNG GIẢI THÍCH)
 ═══════════════════════════════════════════════════`;
 
 function buildUserMessage({ problem, context = '', relatedTIPs = [], webResults = '' }) {
@@ -119,7 +128,8 @@ function buildUserMessage({ problem, context = '', relatedTIPs = [], webResults 
 
   if (webResults) parts.push(`\n🌐 WEB:\n${webResults}`);
 
-  parts.push(`\n\nTrả JSON đủ 14 trường + 4 trường máy + tests.`);
+  parts.push(`\n\n⚠️ Trả JSON đủ 14 trường + 4 trường máy + tests.`);
+  parts.push(`⚠️ CHỈ JSON, KHÔNG text trước/sau. Bắt đầu bằng { và kết thúc bằng }.`);
   return parts.join('\n');
 }
 

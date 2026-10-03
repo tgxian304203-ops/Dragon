@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   🎯 CHỌN MODEL — chọn theo MODEL, không theo key
+   🎯 CHỌN MODEL — sắp xếp provider theo quota còn lại
    ═══════════════════════════════════════════════════════════════ */
 
 const { sortByPriority } = require('./modelPriority');
@@ -47,12 +47,27 @@ function groupKeysByProvider(keys) {
   return map;
 }
 
+/**
+ * Sắp xếp provider theo quota trung bình còn lại (giảm dần).
+ * Provider hết quota (avg=0) sẽ đứng cuối.
+ */
 function getProviderOrder(keysByProvider) {
-  const order = [];
+  const providers = [];
+
   for (const p of ['gemini', 'groq', 'openrouter']) {
-    if (keysByProvider[p] && keysByProvider[p].length > 0) order.push(p);
+    const keys = keysByProvider[p];
+    if (!keys || keys.length === 0) continue;
+
+    const avgQuota =
+      keys.reduce((sum, k) => sum + (k.quotaPercent ?? 100), 0) / keys.length;
+
+    providers.push({ provider: p, avgQuota });
   }
-  return order;
+
+  // Sắp xếp giảm dần theo quota
+  providers.sort((a, b) => b.avgQuota - a.avgQuota);
+
+  return providers.map((x) => x.provider);
 }
 
 module.exports = { pickNextModel, groupModelsByKeys, groupKeysByProvider, getProviderOrder };
