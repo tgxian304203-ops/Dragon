@@ -1,11 +1,17 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 NÃO PHẢI — Kiểm TIP + chạy tests verify
+   🧠 NÃO PHẢI — Kiểm TIP + chạy tests verify + verify pattern
+   - Kiểm 14 trường + 4 trường máy
+   - Kiểm pattern match câu gốc
+   - Kiểm logicType phù hợp intent
+   - Chạy tests mathjs cho expr
+   - Gọi feedback khi fail
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
 const naoPhaiPrompt = require('./prompts/naoPhai.prompt');
 const { webSearch, formatForPrompt } = require('../webSearch');
 const { evaluate } = require('mathjs');
+const { matchPattern } = require('../logicRunner');
 const logger = require('../../utils/logger');
 
 const FIELDS_14 = [
@@ -16,6 +22,10 @@ const FIELDS_14 = [
 ];
 
 const MAX_JSON_RETRY = 3;
+
+/* ═══════════════════════════════════════════════════════════════
+   SANITIZE + PARSE JSON
+   ═══════════════════════════════════════════════════════════════ */
 
 function sanitizeJsonText(text) {
   if (!text || typeof text !== 'string') return '';
@@ -61,6 +71,10 @@ function parseJSONFromModel(raw) {
   throw new Error(`Không parse được JSON: ${lastErr?.message || 'unknown'}`);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   NORMALIZE EVALUATION
+   ═══════════════════════════════════════════════════════════════ */
+
 function normalizeEvaluation(raw) {
   const missingFields = Array.isArray(raw.missingFields)
     ? raw.missingFields
@@ -103,6 +117,68 @@ function normalizeEvaluation(raw) {
   };
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   [MỚI] VERIFY PATTERN + LOGIC TYPE
+   ═══════════════════════════════════════════════════════════════ */
+
+/**
+ * Kiểm TIP có pattern match câu gốc không.
+ * @returns {{ matched: boolean, vars: object|null }}
+ */
+function verifyPattern(tip, originalProblem) {
+  if (!originalProblem || !Array.isArray(tip.patterns) || tip.patterns.length === 0) {
+    return { matched: false, vars: null };
+  }
+
+  try {
+    const vars = matchPattern(tip.patterns, originalProblem);
+    return { matched: !!vars, vars };
+  } catch (err) {
+    logger.warn(`verifyPattern lỗi: ${err.message}`);
+    return { matched: false, vars: null };
+  }
+}
+
+/**
+ * Kiểm logicType có phù hợp với intent câu hỏi không.
+ */
+function verifyLogicTypeForIntent(tip, originalProblem) {
+  if (!originalProblem) return { ok: true };
+
+  const q = originalProblem.toLowerCase();
+  const isMath = /\b(tính|toán|phép|cộng|trừ|nhân|chia|tổng|hiệu|tích|thương|mũ|[+\-*/^])\b/i.test(q);
+  const isCode = /\b(viết|tạo|code|lập trình|hàm|function|script|chương trình)\b/i.test(q);
+  const isBugfix = /\b(sửa|fix|debug|lỗi|bug|error)\b/i.test(q);
+
+  const lt = tip.logicType || '';
+
+  if (isMath && lt !== 'expr' && lt !== '') {
+    return { ok: false, reason: `Câu hỏi toán nhưng logicType="${lt}"` };
+  }
+  if (isCode && !['code', 'patch'].includes(lt)) {
+    return { ok: false, reason: `Câu hỏi code nhưng logicType="${lt}"` };
+  }
+  if (isBugfix && lt !== 'patch') {
+    return { ok: false, reason: `Câu hỏi bugfix nhưng logicType="${lt}"` };
+  }
+
+  return { ok: true };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CHẠY TESTS (mathjs cho expr)
+   ═══════════════════════════════════════════════════════════════ */
+
+/**
+ * Chuẩn hóa số: "7,6" → 7.6
+ */
+function parseNum(v) {
+  if (typeof v === 'number') return v;
+  const s = String(v).replace(',', '.');
+  const n = Number(s);
+  return Number.isNaN(n) ? v : n;
+}
+
 function runTests(tip) {
   if (!Array.isArray(tip.tests) || tip.tests.length === 0) {
     return { allPass: true, results: [] };
@@ -116,8 +192,7 @@ function runTests(tip) {
     try {
       const scope = {};
       for (const [k, v] of Object.entries(tc.input || {})) {
-        const num = Number(v);
-        scope[k] = Number.isNaN(num) ? v : num;
+        scope[k] = parseNum(v);
       }
       const got = evaluate(tip.logicValue, scope);
       const pass = got == tc.expected;
@@ -128,6 +203,10 @@ function runTests(tip) {
   }
   return { allPass: results.every((r) => r.pass), results };
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   GỌI NÃO PHẢI + PARSE
+   ═══════════════════════════════════════════════════════════════ */
 
 async function goiPhaiVaParse({ owner, messages, tempKeys, label }) {
   const excludeModels = new Set();
@@ -178,6 +257,10 @@ async function goiPhaiVaParse({ owner, messages, tempKeys, label }) {
   throw new Error(`${label} thất bại sau ${MAX_JSON_RETRY} lần. Lỗi cuối: ${lastErr?.message || 'unknown'}`);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   HÀM CHÍNH — KIỂM CHỨNG
+   ═══════════════════════════════════════════════════════════════ */
+
 async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) {
   if (!tip || typeof tip !== 'object') throw new Error('TIP không hợp lệ');
   if (!tip.nguyenLy || tip.nguyenLy.trim() === '') throw new Error('TIP thiếu nguyenLy');
@@ -185,37 +268,79 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
     throw new Error('Thiếu owner');
   }
 
+  const issues = [];
+
+  /* ═══ BƯỚC 1 — Verify pattern match câu gốc ═══ */
+  const patternCheck = verifyPattern(tip, originalProblem);
+  if (originalProblem && Array.isArray(tip.patterns) && tip.patterns.length > 0) {
+    if (!patternCheck.matched) {
+      logger.warn(`⚠️ Não phải: pattern KHÔNG match câu gốc "${originalProblem.slice(0, 60)}"`);
+      issues.push({
+        field: 'patterns',
+        problem: `Pattern không match câu hỏi gốc: "${originalProblem.slice(0, 80)}"`,
+        severity: 'high',
+      });
+    } else {
+      logger.debug(`✅ Não phải: pattern match — vars=${JSON.stringify(patternCheck.vars)}`);
+    }
+  }
+
+  /* ═══ BƯỚC 2 — Verify logicType phù hợp intent ═══ */
+  const logicCheck = verifyLogicTypeForIntent(tip, originalProblem);
+  if (!logicCheck.ok) {
+    logger.warn(`⚠️ Não phải: logicType không phù hợp — ${logicCheck.reason}`);
+    issues.push({
+      field: 'logicType',
+      problem: logicCheck.reason,
+      severity: 'high',
+    });
+  }
+
+  /* ═══ BƯỚC 3 — Chạy tests mathjs cho expr ═══ */
   const testResult = runTests(tip);
   logger.debug(`Tests: allPass=${testResult.allPass}, cases=${testResult.results.length}`);
 
   if (!testResult.allPass) {
     const failed = testResult.results.filter((r) => !r.pass);
+    issues.push({
+      field: 'logicValue',
+      problem: `Test fail: ${JSON.stringify(failed[0].input)} → kỳ vọng ${failed[0].expected}, nhận ${failed[0].got}`,
+      severity: 'high',
+    });
+  }
+
+  /* ═══ BƯỚC 4 — Nếu có issue → trả về luôn (không cần gọi model) ═══ */
+  if (issues.length > 0) {
+    logger.warn(`🧠 Não phải: ${issues.length} issue — fail luôn, không cần gọi model`);
+
     return {
       evaluation: {
         missingFields: [],
-        reason: 'Tests fail',
+        reason: `Có ${issues.length} lỗi khi verify: pattern/logicType/tests`,
         numericTest: {
-          example: JSON.stringify(failed[0].input),
-          calculation: `Kỳ vọng ${failed[0].expected}, nhận ${failed[0].got}`,
-          expected: String(failed[0].expected),
-          actual: String(failed[0].got),
+          example: '',
+          calculation: '',
+          expected: '',
+          actual: '',
           match: false,
         },
-        issues: failed.map((f) => ({
-          field: 'logicValue',
-          problem: `Test ${JSON.stringify(f.input)} → kỳ vọng ${f.expected}, nhận ${f.got}`,
-          severity: 'high',
-        })),
-        suggestions: ['Sửa logicValue để test pass'],
+        issues,
+        suggestions: ['Sửa patterns/logicType/logicValue để pass verify'],
         needSupplement: false,
         needWebSearch: false,
         searchQuery: '',
-        testsFailed: true,
+        testsFailed: !testResult.allPass,
       },
-      meta: { provider: 'local', testResult },
+      meta: {
+        provider: 'local',
+        testResult,
+        patternCheck: { matched: patternCheck.matched },
+        logicCheck,
+      },
     };
   }
 
+  /* ═══ BƯỚC 5 — Không có issue cứng → gọi Não phải verify ngữ nghĩa ═══ */
   const userMessage = naoPhaiPrompt.buildUserMessage({ tip, originalProblem });
   const messages = [
     { role: 'system', content: naoPhaiPrompt.SYSTEM_PROMPT },
@@ -228,6 +353,7 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
     owner, messages, tempKeys, label: '🧠 Não phải',
   });
 
+  /* ═══ BƯỚC 6 — Web verify nếu Não phải yêu cầu ═══ */
   if (evaluation.needWebSearch && evaluation.searchQuery) {
     try {
       const searchResult = await webSearch(evaluation.searchQuery);
@@ -244,7 +370,15 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
         owner, messages: messages2, tempKeys, label: '🧠 Não phải (web)',
       });
 
-      return { evaluation: evaluation2, meta: { ...meta2, webVerified: true, testResult } };
+      logger.success(
+        `🧠 Não phải (web): missing=[${evaluation2.missingFields.join(',')}], ` +
+        `patternMatch=${patternCheck.matched}, testsPass=${testResult.allPass}`
+      );
+
+      return {
+        evaluation: evaluation2,
+        meta: { ...meta2, webVerified: true, testResult, patternCheck, logicCheck },
+      };
     } catch (err) {
       logger.warn(`Web verify lỗi: ${err.message}`);
     }
@@ -252,10 +386,20 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
 
   logger.success(
     `🧠 Não phải: missing=[${evaluation.missingFields.join(',')}], ` +
-    `match=${evaluation.numericTest.match}, testsPass=${testResult.allPass}`
+    `patternMatch=${patternCheck.matched}, testsPass=${testResult.allPass}`
   );
 
-  return { evaluation, meta: { ...meta, testResult } };
+  return {
+    evaluation,
+    meta: { ...meta, testResult, patternCheck, logicCheck },
+  };
 }
 
-module.exports = { kiemChung, parseJSONFromModel, normalizeEvaluation, runTests };
+module.exports = {
+  kiemChung,
+  parseJSONFromModel,
+  normalizeEvaluation,
+  runTests,
+  verifyPattern,
+  verifyLogicTypeForIntent,
+};

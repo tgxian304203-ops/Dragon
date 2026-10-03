@@ -2,10 +2,12 @@
    🧠 NÃO TRÁI — Tạo TIP 14 trường + 4 trường máy
    - JSON mode + retry blacklist model
    - Sanitize JSON mạnh — bắt mọi dạng output model
+   - [MỚI] Ghi feedback.recordHardProblem khi fail 3 lần
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
 const naoTraiPrompt = require('./prompts/naoTrai.prompt');
+const feedback = require('./feedback');
 const logger = require('../../utils/logger');
 
 const FIELDS_14 = [
@@ -20,32 +22,25 @@ const VALID_LOGIC_TYPES = ['expr', 'code', 'patch', ''];
 
 const MAX_JSON_RETRY = 3;
 
-/**
- * Làm sạch text JSON — loại bỏ mọi ký tự không thuộc JSON.
- */
+/* ═══════════════════════════════════════════════════════════════
+   SANITIZE + PARSE JSON
+   ═══════════════════════════════════════════════════════════════ */
+
 function sanitizeJsonText(text) {
   if (!text || typeof text !== 'string') return '';
 
   let s = text;
-
-  // 1. Bỏ ký tự vô hình
   s = s.replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '');
-
-  // 2. Bỏ markdown code fence nếu còn
   s = s.replace(/^```(?:json|JSON)?\s*/i, '');
   s = s.replace(/\s*```\s*$/i, '');
 
-  // 3. Tìm dấu { đầu tiên và } cuối cùng — cắt bỏ mọi thứ ngoài
   const first = s.indexOf('{');
   const last = s.lastIndexOf('}');
   if (first !== -1 && last > first) {
     s = s.slice(first, last + 1);
   }
 
-  // 4. Bỏ trailing comma: {"a":1,} → {"a":1}
   s = s.replace(/,\s*([}\]])/g, '$1');
-
-  // 5. Thêm ngoặc kép cho key không có: {a:1} → {"a":1}
   s = s.replace(
     /([{,]\s*)([a-zA-Z_\u00C0-\u1EF9][a-zA-Z0-9_\u00C0-\u1EF9]*)\s*:/g,
     '$1"$2":'
@@ -54,27 +49,21 @@ function sanitizeJsonText(text) {
   return s;
 }
 
-/**
- * Parse JSON — thử nhiều biến thể.
- */
 function parseJSONFromModel(raw) {
   if (!raw || typeof raw !== 'string') throw new Error('Output rỗng');
 
   const text = raw.trim();
   const candidates = [text];
 
-  // Biến thể 1: bỏ markdown
   const noMd = text.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, '$1').trim();
   if (noMd !== text) candidates.push(noMd);
 
-  // Biến thể 2: cắt từ { đến }
   const first = text.indexOf('{');
   const last = text.lastIndexOf('}');
   if (first !== -1 && last > first) {
     candidates.push(text.slice(first, last + 1));
   }
 
-  // Biến thể 3: sanitize mạnh
   candidates.push(sanitizeJsonText(text));
 
   let lastErr = null;
@@ -87,11 +76,13 @@ function parseJSONFromModel(raw) {
     }
   }
 
-  // Log raw text để debug
   logger.warn(`❌ Parse JSON fail. Raw (300 ký tự đầu): ${text.slice(0, 300)}`);
-
   throw new Error(`Không parse được JSON: ${lastErr?.message || 'unknown'}`);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   NORMALIZE TIP
+   ═══════════════════════════════════════════════════════════════ */
 
 function normalizeTIP(raw) {
   const tip = {};
@@ -144,6 +135,10 @@ function normalizeTIP(raw) {
 
   return tip;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   GỌI MODEL + PARSE JSON
+   ═══════════════════════════════════════════════════════════════ */
 
 async function goiVaParse({ side, owner, messages, tempKeys, label }) {
   const excludeModels = new Set();
@@ -209,7 +204,11 @@ async function goiVaParse({ side, owner, messages, tempKeys, label }) {
   );
 }
 
-async function phanTich({ problem, context = '', relatedTIPs = [], webResults = '', owner, tempKeys = null }) {
+/* ═══════════════════════════════════════════════════════════════
+   PHÂN TÍCH — tạo TIP mới
+   ═══════════════════════════════════════════════════════════════ */
+
+async function phanTich({ problem, context = '', relatedTIPs = [], webResults = '', owner, tempKeys = null, intent = 'general' }) {
   if (!problem || problem.trim() === '') throw new Error('Vấn đề rỗng');
   if (!owner || (!owner.userId && !owner.guestSessionId && !tempKeys)) {
     throw new Error('Thiếu owner');
@@ -226,12 +225,23 @@ async function phanTich({ problem, context = '', relatedTIPs = [], webResults = 
 
   logger.info(`🧠 Não trái tạo TIP: "${problem.slice(0, 60)}..."`);
 
-  return await goiVaParse({
-    side: 'left', owner, messages, tempKeys, label: '🧠 Não trái',
-  });
+  try {
+    return await goiVaParse({
+      side: 'left', owner, messages, tempKeys, label: '🧠 Não trái',
+    });
+  } catch (err) {
+    // [MỚI] Ghi log câu hỏi khó (bất đồng bộ)
+    feedback.recordHardProblem(problem, intent, err.message)
+      .catch((e) => logger.warn('feedback.recordHardProblem:', e.message));
+    throw err;
+  }
 }
 
-async function boSung({ tip, missingFields, problem, needCode = false, owner, tempKeys = null }) {
+/* ═══════════════════════════════════════════════════════════════
+   BỔ SUNG — Não trái bổ sung trường thiếu
+   ═══════════════════════════════════════════════════════════════ */
+
+async function boSung({ tip, missingFields, problem, needCode = false, owner, tempKeys = null, intent = 'general' }) {
   if (!tip || typeof tip !== 'object') throw new Error('TIP không hợp lệ');
   if (!Array.isArray(missingFields) || missingFields.length === 0) {
     throw new Error('Không có trường cần bổ sung');
@@ -262,9 +272,16 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner, te
 
   logger.info(`🧠 Não trái bổ sung: [${missingFields.join(', ')}]`);
 
-  return await goiVaParse({
-    side: 'left', owner, messages, tempKeys, label: '🧠 Não trái (bổ sung)',
-  });
+  try {
+    return await goiVaParse({
+      side: 'left', owner, messages, tempKeys, label: '🧠 Não trái (bổ sung)',
+    });
+  } catch (err) {
+    // [MỚI] Ghi log câu hỏi khó (bất đồng bộ)
+    feedback.recordHardProblem(problem, intent, `bổ sung: ${err.message}`)
+      .catch((e) => logger.warn('feedback.recordHardProblem:', e.message));
+    throw err;
+  }
 }
 
 module.exports = {

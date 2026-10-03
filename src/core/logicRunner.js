@@ -1,5 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
-   🎯 LOGIC RUNNER — Match pattern + chạy logic (async)
+   🎯 LOGIC RUNNER — Match pattern linh hoạt + chạy logic (async)
+   - Regex bắt số có dấu phẩy + dấu chấm
+   - Bỏ chữ đệm khi match
+   - Chuẩn hóa số thập phân trước khi tính
    - Nhánh expr: mathjs (sync)
    - Nhánh code/patch: Judge0 CE (async)
    ═══════════════════════════════════════════════════════════════ */
@@ -8,25 +11,57 @@ const { evaluate } = require('mathjs');
 const { testCode } = require('./pistonTest');
 const logger = require('../utils/logger');
 
+/* ═══════════════════════════════════════════════════════════════
+   CHỮ ĐỆM — bỏ khi match pattern
+   ═══════════════════════════════════════════════════════════════ */
+
+const FILLER_WORDS = [
+  'với', 'là', 'bao nhiêu', 'bằng mấy', 'bằng bao nhiêu',
+  'giúp', 'giùm', 'giúp tôi', 'giúp mình', 'giùm tôi', 'giùm mình',
+  'cho tôi', 'cho mình', 'hộ', 'dùm',
+  'tính giúp', 'tính giùm', 'tính hộ',
+  'nha', 'nhé', 'ạ', 'à', 'vậy', 'vậy ạ', 'đó',
+  'kết quả', 'cho biết',
+];
+
 /**
- * Chuẩn hóa câu hỏi — thêm space quanh toán tử
+ * Chuẩn hóa câu hỏi:
+ * 1. Thêm space quanh toán tử
+ * 2. Bỏ chữ đệm
+ * 3. Gộp space
  */
 function normalizeQuery(query) {
   if (!query || typeof query !== 'string') return '';
 
   let s = query.trim();
+
+  // 1. Thêm space quanh toán tử: "5+5" → "5 + 5"
   s = s.replace(/(\d)\s*([+\-*/^=])\s*(\d)/g, '$1 $2 $3');
+
+  // 2. Bỏ chữ đệm (từ dài nhất trước để tránh bỏ sót)
+  const sortedFillers = [...FILLER_WORDS].sort((a, b) => b.length - a.length);
+  for (const filler of sortedFillers) {
+    const re = new RegExp(`\\s+${filler.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$|^\\s*${filler.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+|\\s+${filler.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+`, 'giu');
+    s = s.replace(re, ' ');
+  }
+
+  // 3. Gộp space
   s = s.replace(/\s+/g, ' ').trim();
+
   return s;
 }
 
 /**
  * Chuyển pattern "{a} cộng {b}" → regex
+ * - {a}, {b}... → số có dấu chấm HOẶC dấu phẩy
+ * - {name} → chữ
+ * - {code}, {text} → text tự do
  */
 function patternToRegex(pattern) {
   let s = String(pattern);
   s = s.replace(/\s+/g, ' ').trim();
 
+  // Đánh dấu placeholder
   s = s.replace(/\{a\}/g, '\u0001NUM\u0001');
   s = s.replace(/\{b\}/g, '\u0001NUM\u0001');
   s = s.replace(/\{c\}/g, '\u0001NUM\u0001');
@@ -37,10 +72,15 @@ function patternToRegex(pattern) {
   s = s.replace(/\{error\}/g, '\u0001CODE\u0001');
   s = s.replace(/\{text\}/g, '\u0001CODE\u0001');
 
+  // Escape ký tự đặc biệt
   s = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // Space trong pattern → \s* (khoan dung)
   s = s.replace(/ /g, '\\s*');
 
-  s = s.replace(/\u0001NUM\u0001/g, '(-?\\d+(?:\\.\\d+)?)');
+  // Khôi phục placeholder
+  // [MỚI] NUM: bắt cả dấu chấm VÀ dấu phẩy cho số thập phân
+  s = s.replace(/\u0001NUM\u0001/g, '(-?\\d+(?:[.,]\\d+)?)');
   s = s.replace(/\u0001STR\u0001/g, '([\\w\\u00C0-\\u1EF9]+)');
   s = s.replace(/\u0001CODE\u0001/g, '(.+?)');
 
@@ -55,6 +95,7 @@ function matchPattern(patterns, query) {
   if (!query || typeof query !== 'string') return null;
 
   const q = normalizeQuery(query);
+  logger.debug(`normalizeQuery: "${query}" → "${q}"`);
 
   for (const p of patterns) {
     try {
@@ -86,6 +127,16 @@ function matchPattern(patterns, query) {
 }
 
 /**
+ * Chuẩn hóa số cho mathjs: "7,6" → 7.6
+ */
+function parseNum(v) {
+  if (typeof v === 'number') return v;
+  const s = String(v).replace(',', '.');
+  const n = Number(s);
+  return Number.isNaN(n) ? v : n;
+}
+
+/**
  * Nhận diện ngôn ngữ từ code (dùng cho nhánh code/patch)
  */
 function detectLangFromCode(code) {
@@ -112,8 +163,8 @@ async function runLogic({ logicType, logicValue, vars }) {
     try {
       const scope = {};
       for (const [k, v] of Object.entries(vars || {})) {
-        const num = Number(v);
-        scope[k] = Number.isNaN(num) ? v : num;
+        // [MỚI] Chuẩn hóa dấu phẩy → dấu chấm cho số thập phân
+        scope[k] = parseNum(v);
       }
 
       const kq = evaluate(logicValue, scope);
@@ -148,7 +199,6 @@ async function runLogic({ logicType, logicValue, vars }) {
       };
     }
 
-    // Vẫn trả code để user thấy, nhưng đánh dấu lỗi
     logger.warn(`Judge0 chạy code lỗi: ${result.error}`);
     return {
       success: false,
@@ -199,18 +249,33 @@ async function runLogic({ logicType, logicValue, vars }) {
 }
 
 /**
- * Format output theo outputTpl
+ * Format output theo outputTpl.
+ * [MỚI] Nếu kq là số thập phân → hiển thị dấu phẩy cho thân thiện VN.
  */
 function formatOutput(tpl, vars, kq) {
   if (!tpl) return String(kq);
 
   let out = String(tpl);
 
+  // Thay vars vào output
   for (const [k, v] of Object.entries(vars || {})) {
     out = out.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
   }
 
-  out = out.replace(/\{kq\}/g, String(kq));
+  // Thay kq — nếu là số → format
+  let kqStr;
+  if (typeof kq === 'number' && Number.isFinite(kq)) {
+    // Nếu là số nguyên → giữ nguyên. Nếu thập phân → dùng dấu phẩy VN
+    if (Number.isInteger(kq)) {
+      kqStr = String(kq);
+    } else {
+      kqStr = String(kq).replace('.', ',');
+    }
+  } else {
+    kqStr = String(kq);
+  }
+
+  out = out.replace(/\{kq\}/g, kqStr);
 
   return out;
 }
@@ -222,4 +287,6 @@ module.exports = {
   formatOutput,
   normalizeQuery,
   detectLangFromCode,
+  parseNum,
+  FILLER_WORDS,
 };

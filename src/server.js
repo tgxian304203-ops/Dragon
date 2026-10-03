@@ -1,5 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════
    🐉 RỒNG THẦN — SERVER KHỞI ĐỘNG
+   - Khởi động 2 DB
+   - Auto update models
+   - Cleanup imageCache/voiceCache/fileCache
+   - [MỚI] Cleanup modelCache + feedback.analyze()
    ═══════════════════════════════════════════════════════════════ */
 
 require('dotenv').config();
@@ -24,7 +28,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-/* ═══ STATIC (đặt TRƯỚC identifyGuest) ═══ */
+/* ═══ STATIC ═══ */
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 /* ═══ GUEST IDENTIFY ═══ */
@@ -40,7 +44,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-/* ═══ ROUTE /share/:slug — serve share-view.html (SH2) ═══ */
+/* ═══ ROUTE /share/:slug ═══ */
 app.get('/share/:slug', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'share-view.html'));
 });
@@ -65,6 +69,11 @@ app.use(errorHandler);
 
 /* ═══ KHỞI ĐỘNG ═══ */
 let server = null;
+let modelCacheCleanupTimer = null;
+let feedbackAnalyzeTimer = null;
+
+const MODEL_CACHE_CLEANUP_MS = 30 * 60 * 1000;      // 30 phút
+const FEEDBACK_ANALYZE_MS = 24 * 60 * 60 * 1000;    // 24 giờ
 
 async function start() {
   try {
@@ -73,12 +82,39 @@ async function start() {
 
     await Promise.all([connectDB1(), connectDB2()]);
 
+    /* ═══ Auto update models ═══ */
     const { startAutoUpdate } = require('./core/brains/autoUpdateModels');
     startAutoUpdate();
 
+    /* ═══ Cleanup services ═══ */
     require('./services/imageCache.service').startCleanup();
     require('./services/voiceCache.service').startCleanup();
     require('./services/fileCache.service').startCleanup();
+
+    /* ═══ [MỚI] Cleanup modelCache định kỳ ═══ */
+    const modelCache = require('./core/brains/modelCache');
+    modelCacheCleanupTimer = setInterval(() => {
+      try {
+        modelCache.cleanup();
+        console.log('🧹 modelCache.cleanup() chạy xong');
+      } catch (err) {
+        console.error('❌ modelCache.cleanup() lỗi:', err.message);
+      }
+    }, MODEL_CACHE_CLEANUP_MS);
+    console.log(`🧹 Cleanup modelCache bật — mỗi ${MODEL_CACHE_CLEANUP_MS / 1000 / 60} phút`);
+
+    /* ═══ [MỚI] Feedback analyze định kỳ ═══ */
+    try {
+      const feedback = require('./core/brains/feedback');
+      feedbackAnalyzeTimer = setInterval(() => {
+        feedback.analyze().catch((err) => {
+          console.error('❌ feedback.analyze() lỗi:', err.message);
+        });
+      }, FEEDBACK_ANALYZE_MS);
+      console.log(`🧠 Feedback analyze bật — mỗi ${FEEDBACK_ANALYZE_MS / 1000 / 60 / 60} giờ`);
+    } catch (err) {
+      console.warn('⚠️ Không khởi động được feedback:', err.message);
+    }
 
     server = app.listen(PORT, () => {
       console.log(`✅ Rồng Thần sẵn sàng tại http://localhost:${PORT}`);
@@ -101,6 +137,15 @@ async function shutdown(signal) {
   try { require('./services/imageCache.service').stopCleanup(); } catch {}
   try { require('./services/voiceCache.service').stopCleanup(); } catch {}
   try { require('./services/fileCache.service').stopCleanup(); } catch {}
+
+  if (modelCacheCleanupTimer) {
+    clearInterval(modelCacheCleanupTimer);
+    modelCacheCleanupTimer = null;
+  }
+  if (feedbackAnalyzeTimer) {
+    clearInterval(feedbackAnalyzeTimer);
+    feedbackAnalyzeTimer = null;
+  }
 
   if (server) server.close(() => console.log('✅ HTTP server đã tắt'));
 
