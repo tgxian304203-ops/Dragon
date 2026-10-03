@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    📞 GỌI MODEL — fallback tự động (NT9, NP9, TU7)
    - Sort key theo quota (chỉ ưu tiên, KHÔNG skip)
+   - Fallback xuyên provider: provider đầu fail hết → chuyển provider tiếp
    - Nhận options.excludeModels để blacklist model lỗi
    ═══════════════════════════════════════════════════════════════ */
 
@@ -80,21 +81,26 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
     throw new Error(`Không có key ${side} nào có model khả dụng`);
   }
 
-  logger.debug(`🎯 Provider order: ${providerOrder.join(' → ')}`);
+  logger.info(`🎯 Provider order: ${providerOrder.join(' → ')}`);
 
-  const triedModels = new Set(excludeModels);
   const triedKeys = new Set();
   const lastErrors = [];
 
-  for (const provider of providerOrder) {
+  for (let pi = 0; pi < providerOrder.length; pi++) {
+    const provider = providerOrder[pi];
     const providerKeys = keysByProvider[provider];
+    const triedModelsInProvider = new Set(); // [MỚI] reset cho mỗi provider
+
+    let providerHadAttempt = false;
+    let providerSuccess = false;
 
     while (true) {
-      const picked = pickNextModel(provider, providerKeys, triedModels);
+      const picked = pickNextModel(provider, providerKeys, triedModelsInProvider);
       if (!picked) break;
 
       const { modelId, keys: keyCandidates } = picked;
-      triedModels.add(modelId);
+      triedModelsInProvider.add(modelId);
+      providerHadAttempt = true;
 
       for (const keyInfo of keyCandidates) {
         const keyIdStr = String(keyInfo.keyId);
@@ -144,10 +150,20 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
         }
       }
     }
+
+    // [MỚI] Log rõ khi provider fail hết
+    if (providerHadAttempt && !providerSuccess) {
+      const nextProvider = providerOrder[pi + 1];
+      if (nextProvider) {
+        logger.warn(`⚠️ Provider ${provider} fail hết model → chuyển sang ${nextProvider}`);
+      } else {
+        logger.warn(`⚠️ Provider ${provider} fail hết model — không còn provider nào`);
+      }
+    }
   }
 
   throw new Error(
-    `Não ${side === 'left' ? 'trái' : 'phải'}: tất cả model thất bại (${triedModels.size} model). ` +
+    `Não ${side === 'left' ? 'trái' : 'phải'}: tất cả model thất bại. ` +
     `Chi tiết: ${lastErrors.slice(-5).join(' | ')}`
   );
 }
