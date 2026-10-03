@@ -1,6 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
    📚 KHO TRI THỨC — Search match pattern + keyword (an toàn)
-   - Lọc cứng theo intent: intent=code → chỉ TIP code/general
+   - Lọc cứng theo intent
+   - Phạt nặng TIP có patterns nhưng không match câu user
+   - Ưu tiên cao cho keyword khớp chính xác
    ═══════════════════════════════════════════════════════════════ */
 
 const { getTipModel } = require('../models/tip.model');
@@ -24,12 +26,14 @@ const SYNONYM_MAP = {
   'toán': ['tính', 'tính toán', 'phép tính'],
   'cộng': ['tổng', 'addition', 'sum', '+'],
   'trừ': ['hiệu', 'subtraction', '-'],
-  'nhân': ['tích', 'multiplication', '*'],
+  'nhân': ['tích', 'multiplication', '*', 'x'],
   'chia': ['thương', 'division', '/'],
   'tổng': ['cộng', 'sum'],
   'hiệu': ['trừ', 'difference'],
   'tích': ['nhân', 'product'],
   'thương': ['chia', 'quotient'],
+  'mũ': ['lũy thừa', 'power', '^'],
+  'lũy thừa': ['mũ', 'power'],
   'giải thích': ['tại sao', 'vì sao', 'lý do', 'nguyên nhân'],
   'tại sao': ['vì sao', 'lý do', 'nguyên nhân'],
   'khái niệm': ['định nghĩa', 'lý thuyết'],
@@ -106,10 +110,7 @@ function extractNgrams(query, maxN = 3) {
 }
 
 /**
- * Chấm điểm TIP theo intent + token + ngram.
- * - Cùng category với intent: +30
- * - Category "general": +5
- * - Khác category: -50 (phạt nặng)
+ * Chấm điểm TIP theo intent + keyword + token + ngram.
  */
 function scoreTIP(tip, ctx) {
   let score = 0;
@@ -124,38 +125,37 @@ function scoreTIP(tip, ctx) {
 
   const tipCategory = String(tip.category || 'general').toLowerCase();
 
-  // ═══ Điểm category — quan trọng nhất ═══
+  // Điểm category
   if (ctx.intent !== 'general') {
-    if (tipCategory === ctx.intent) {
-      score += 30; // Cùng category
-    } else if (tipCategory === 'general') {
-      score += 5; // General — dùng được nhưng không ưu tiên
-    } else {
-      score -= 50; // Khác category → phạt nặng
-    }
+    if (tipCategory === ctx.intent) score += 30;
+    else if (tipCategory === 'general') score += 5;
+    else score -= 50;
   } else {
-    // intent=general → không phạt
     score += 5;
   }
 
+  // [MỚI] Keyword khớp qua synonym — tăng ưu tiên mạnh
   let kwHits = 0;
   for (const kw of tipKeywords) {
-    if (ctx.synonyms.includes(kw) || ctx.tokens.includes(kw)) kwHits++;
+    if (ctx.synonyms.includes(kw)) kwHits++;
   }
-  score += Math.min(20, kwHits * 5);
+  score += Math.min(60, kwHits * 30);
 
+  // Token khớp trực tiếp
   let tokenHits = 0;
   for (const t of ctx.tokens) {
     if (tipText.includes(t)) tokenHits++;
   }
   score += Math.min(20, tokenHits * 3);
 
+  // Ngram khớp
   let ngramHits = 0;
   for (const gram of ctx.ngrams) {
     if (tipText.includes(gram)) ngramHits++;
   }
   score += Math.min(16, ngramHits * 8);
 
+  // Quality
   score += (tip.qualityScore || 0) * 0.05;
 
   return Math.round(score * 100) / 100;
@@ -178,7 +178,6 @@ async function searchTIP(query, options = {}) {
   logger.debug(`Search: intent=${intent} tokens=[${tokens.slice(0, 8).join(',')}]`);
 
   let candidates = [];
-
   try {
     candidates = await Tip.find({}).limit(limit * 10).lean();
   } catch (err) {
@@ -190,14 +189,19 @@ async function searchTIP(query, options = {}) {
 
   const scored = candidates.map((tip) => {
     let score = 0;
+    let patternMatched = false;
 
-    // Match pattern
+    // [MỚI] Match pattern + phạt nặng nếu có patterns nhưng không match
     if (Array.isArray(tip.patterns) && tip.patterns.length > 0) {
       try {
         const vars = matchPattern(tip.patterns, query);
         if (vars) {
           score += 100;
-          logger.debug(`Pattern match TIP ${tip._id}: score +100`);
+          patternMatched = true;
+          logger.debug(`Pattern match TIP ${tip._id}: +100`);
+        } else {
+          // TIP có patterns nhưng không match câu user → phạt nặng
+          score -= 200;
         }
       } catch (err) {
         logger.warn(`Pattern check lỗi TIP ${tip._id}: ${err.message}`);
@@ -206,10 +210,10 @@ async function searchTIP(query, options = {}) {
 
     score += scoreTIP(tip, ctx);
 
-    return { ...tip, _score: score };
+    return { ...tip, _score: score, _patternMatched: patternMatched };
   });
 
-  // ═══ LỌC CỨNG THEO INTENT ═══
+  // Lọc cứng theo intent
   let filtered = scored;
   if (intent !== 'general') {
     filtered = scored.filter((t) => {
@@ -226,7 +230,7 @@ async function searchTIP(query, options = {}) {
     `Kho 2: ${candidates.length} thô → ${filtered.length} sau lọc intent=${intent} → ${passed.length} pass (≥${minScore})`
   );
 
-  return passed.slice(0, limit).map(({ _score, ...tip }) => tip);
+  return passed.slice(0, limit).map(({ _score, _patternMatched, ...tip }) => tip);
 }
 
 async function saveTIP(tipData) {
