@@ -1,8 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 TIỂU NÃO — Match pattern → chạy logic (không model)
+   - Nhánh A: expr (mathjs)
+   - Nhánh B: code (Judge0)
+   - Nhánh C: patch (Judge0)
+   - Nhánh D: fallback (hiện 14 trường)
    ═══════════════════════════════════════════════════════════════ */
 
-const { matchPattern, runLogic, formatOutput } = require('./logicRunner');
+const { matchPattern, runLogic, formatOutput, detectLangFromCode } = require('./logicRunner');
 const logger = require('../utils/logger');
 
 async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
@@ -20,8 +24,8 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
     if (vars) {
       logger.info(`🎯 Match pattern — vars=${JSON.stringify(vars)}`);
 
-      // ═══ BƯỚC 2: Chạy logic ═══
-      const result = runLogic({
+      // ═══ BƯỚC 2: Chạy logic (async — vì có thể gọi Judge0) ═══
+      const result = await runLogic({
         logicType: tip.logicType,
         logicValue: tip.logicValue,
         vars,
@@ -32,11 +36,31 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
 
         logger.success(`✅ Tiểu não tự tính: ${String(answer).slice(0, 80)}`);
 
+        // Với nhánh code/patch — trả đủ code + output + language để UI hiển thị tách riêng
+        if (result.isCode || result.isPatch) {
+          return {
+            answer,
+            type: result.isCode ? 'code' : 'patch',
+            code: result.kq,
+            language: result.language || detectLangFromCode(result.kq),
+            output: result.output || '',
+            meta: {
+              tipId: tip._id?.toString() || null,
+              matched: true,
+              vars,
+              logicType: tip.logicType,
+              ran: true,
+            },
+          };
+        }
+
+        // Nhánh expr — không có code
         return {
           answer,
-          type: result.isCode ? 'code' : (result.isPatch ? 'patch' : 'no_code'),
-          code: result.isCode ? result.kq : null,
-          language: result.isCode ? detectLangFromCode(result.kq) : null,
+          type: 'no_code',
+          code: null,
+          language: null,
+          output: null,
           meta: {
             tipId: tip._id?.toString() || null,
             matched: true,
@@ -47,6 +71,25 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
       }
 
       logger.warn(`Match pattern nhưng chạy logic lỗi: ${result.error}`);
+
+      // Nếu là code/patch chạy lỗi — vẫn trả code cho user, kèm lỗi
+      if (result.isCode || result.isPatch) {
+        return {
+          answer: `⚠️ Code chạy lỗi: ${result.error}`,
+          type: result.isCode ? 'code' : 'patch',
+          code: result.kq,
+          language: result.language || detectLangFromCode(result.kq),
+          output: result.output || '',
+          meta: {
+            tipId: tip._id?.toString() || null,
+            matched: true,
+            vars,
+            logicType: tip.logicType,
+            ran: false,
+            error: result.error,
+          },
+        };
+      }
     } else {
       logger.debug(`Không match pattern nào trong TIP`);
     }
@@ -56,6 +99,9 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
   return {
     answer: formatTIPDayDu(tip),
     type: 'no_code',
+    code: null,
+    language: null,
+    output: null,
     meta: {
       tipId: tip._id?.toString() || null,
       matched: false,
@@ -81,15 +127,6 @@ function formatTIPDayDu(tip) {
   if (tip.nguonPhienBan) parts.push(`\n📚 **Nguồn:** ${tip.nguonPhienBan}`);
 
   return parts.join('\n');
-}
-
-function detectLangFromCode(code) {
-  if (!code) return 'python';
-  if (/^\s*def\s+\w+\s*\(|print\s*\(/m.test(code)) return 'python';
-  if (/^\s*function\s+\w+\s*\(|console\.log/m.test(code)) return 'javascript';
-  if (/^\s*public\s+class|System\.out\.println/m.test(code)) return 'java';
-  if (/^\s*#include|int\s+main\s*\(/m.test(code)) return 'cpp';
-  return 'python';
 }
 
 module.exports = { xuLy, formatTIPDayDu };

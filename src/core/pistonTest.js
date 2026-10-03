@@ -1,31 +1,34 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧪 PISTON TEST (H5)
+   🧪 JUDGE0 TEST — Sandbox chạy code miễn phí (thay Piston)
+   - Giữ nguyên interface: testCode({ code, language, stdin, filename })
+   - Trả về: { success, stdout, stderr, output, exitCode, error }
    ═══════════════════════════════════════════════════════════════ */
 
-const { PISTON_URL } = require('../config/constants');
+const { JUDGE0_API_URL, JUDGE0_TIMEOUT_MS } = require('../config/constants');
 const logger = require('../utils/logger');
 
-const TIMEOUT_MS = 30000;
+const TIMEOUT_MS = JUDGE0_TIMEOUT_MS;
 
+// Bảng ánh xạ ngôn ngữ → language_id của Judge0 CE
 const LANG_MAP = {
-  python: { language: 'python', version: '3.10.0' },
-  python3: { language: 'python', version: '3.10.0' },
-  py: { language: 'python', version: '3.10.0' },
-  javascript: { language: 'javascript', version: '18.15.0' },
-  js: { language: 'javascript', version: '18.15.0' },
-  node: { language: 'javascript', version: '18.15.0' },
-  typescript: { language: 'typescript', version: '5.0.3' },
-  ts: { language: 'typescript', version: '5.0.3' },
-  java: { language: 'java', version: '15.0.2' },
-  c: { language: 'c', version: '10.2.0' },
-  cpp: { language: 'c++', version: '10.2.0' },
-  'c++': { language: 'c++', version: '10.2.0' },
-  go: { language: 'go', version: '1.16.2' },
-  rust: { language: 'rust', version: '1.68.2' },
-  ruby: { language: 'ruby', version: '3.0.1' },
-  php: { language: 'php', version: '8.2.3' },
-  bash: { language: 'bash', version: '5.2.0' },
-  sh: { language: 'bash', version: '5.2.0' },
+  python: { language_id: 71, name: 'Python (3.8.1)' },
+  python3: { language_id: 71, name: 'Python (3.8.1)' },
+  py: { language_id: 71, name: 'Python (3.8.1)' },
+  javascript: { language_id: 63, name: 'JavaScript (Node.js 12.14.0)' },
+  js: { language_id: 63, name: 'JavaScript (Node.js 12.14.0)' },
+  node: { language_id: 63, name: 'JavaScript (Node.js 12.14.0)' },
+  typescript: { language_id: 74, name: 'TypeScript (3.7.4)' },
+  ts: { language_id: 74, name: 'TypeScript (3.7.4)' },
+  java: { language_id: 62, name: 'Java (OpenJDK 13.0.1)' },
+  c: { language_id: 48, name: 'C (GCC 7.4.0)' },
+  cpp: { language_id: 54, name: 'C++ (GCC 9.2.0)' },
+  'c++': { language_id: 54, name: 'C++ (GCC 9.2.0)' },
+  go: { language_id: 60, name: 'Go (1.13.5)' },
+  rust: { language_id: 73, name: 'Rust (1.40.0)' },
+  ruby: { language_id: 72, name: 'Ruby (2.7.0)' },
+  php: { language_id: 68, name: 'PHP (7.4.1)' },
+  bash: { language_id: 46, name: 'Bash (5.0.0)' },
+  sh: { language_id: 46, name: 'Bash (5.0.0)' },
 };
 
 function normalizeLang(lang) {
@@ -34,30 +37,36 @@ function normalizeLang(lang) {
   return LANG_MAP[key] || LANG_MAP.python;
 }
 
+/**
+ * Chạy code qua Judge0 CE.
+ * @param {Object} opts
+ * @param {string} opts.code - Code cần chạy
+ * @param {string} [opts.language='python']
+ * @param {string} [opts.stdin='']
+ * @param {string} [opts.filename=''] - Không dùng với Judge0, giữ để tương thích
+ * @returns {Promise<Object>}
+ */
 async function testCode({ code, language = 'python', stdin = '', filename = '' }) {
   if (!code || code.trim() === '') {
-    throw new Error('Piston: code không hợp lệ');
+    throw new Error('Judge0: code không hợp lệ');
   }
 
   const langCfg = normalizeLang(language);
-  const fname = filename || defaultFilename(langCfg.language);
 
   const payload = {
-    language: langCfg.language,
-    version: langCfg.version,
-    files: [{ name: fname, content: code }],
-    stdin: stdin || '',
-    compile_timeout: 10000,
-    run_timeout: 15000,
+    language_id: langCfg.language_id,
+    source_code: Buffer.from(code, 'utf-8').toString('base64'),
+    stdin: Buffer.from(stdin || '', 'utf-8').toString('base64'),
   };
 
-  logger.debug(`🧪 Piston: ${langCfg.language} ${langCfg.version}`);
+  logger.debug(`🧪 Judge0: ${langCfg.name}`);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
-    const res = await fetch(`${PISTON_URL}/execute`, {
+    const url = `${JUDGE0_API_URL}/submissions?base64_encoded=true&wait=true`;
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -66,43 +75,73 @@ async function testCode({ code, language = 'python', stdin = '', filename = '' }
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      logger.warn(`Piston HTTP ${res.status}: ${body.slice(0, 200)}`);
+      logger.warn(`Judge0 HTTP ${res.status}: ${body.slice(0, 200)}`);
       return {
         success: false,
         stdout: '',
         stderr: '',
         output: '',
         exitCode: null,
-        error: `Piston HTTP ${res.status}: ${body.slice(0, 200)}`,
+        error: `Judge0 HTTP ${res.status}: ${body.slice(0, 200)}`,
       };
     }
 
     const data = await res.json();
 
-    const run = data.run || {};
-    const compile = data.compile || {};
+    // Giải mã base64 kết quả
+    const decode = (s) => {
+      if (!s) return '';
+      try {
+        return Buffer.from(s, 'base64').toString('utf-8');
+      } catch {
+        return '';
+      }
+    };
 
-    const stdout = run.stdout || '';
-    const stderr = run.stderr || '';
-    const compileStderr = compile.stderr || '';
-    const exitCode = run.code ?? null;
+    const stdout = decode(data.stdout);
+    const stderr = decode(data.stderr);
+    const compileOutput = decode(data.compile_output);
+    const message = decode(data.message);
 
-    const success = exitCode === 0 &&
-                    (!stderr || stderr.trim() === '') &&
-                    (!compileStderr || compileStderr.trim() === '');
+    const statusId = data.status?.id ?? null;
+    const statusDesc = data.status?.description || '';
 
-    const output = stdout || stderr || compileStderr || '';
+    // Judge0 status: 3 = Accepted
+    const success =
+      statusId === 3 &&
+      (!stderr || stderr.trim() === '') &&
+      (!compileOutput || compileOutput.trim() === '');
+
+    const output = stdout || stderr || compileOutput || message || '';
+    const errorText = success
+      ? null
+      : stderr || compileOutput || message || statusDesc || `Status ${statusId}`;
+
+    logger.debug(`🧪 Judge0 xong: status=${statusId} (${statusDesc})`);
 
     return {
       success,
       stdout,
-      stderr: stderr || compileStderr,
+      stderr: stderr || compileOutput,
       output,
-      exitCode,
-      error: success ? null : (stderr || compileStderr || `Exit code ${exitCode}`),
+      exitCode: statusId === 3 ? 0 : statusId,
+      error: errorText,
+      time: data.time || null,
+      memory: data.memory || null,
     };
   } catch (err) {
-    logger.error('Piston test lỗi:', err.message);
+    if (err.name === 'AbortError') {
+      logger.error(`Judge0 timeout sau ${TIMEOUT_MS}ms`);
+      return {
+        success: false,
+        stdout: '',
+        stderr: '',
+        output: '',
+        exitCode: null,
+        error: 'Judge0 timeout',
+      };
+    }
+    logger.error('Judge0 test lỗi:', err.message);
     return {
       success: false,
       stdout: '',
@@ -114,16 +153,6 @@ async function testCode({ code, language = 'python', stdin = '', filename = '' }
   } finally {
     clearTimeout(timer);
   }
-}
-
-function defaultFilename(language) {
-  const map = {
-    python: 'main.py', javascript: 'main.js', typescript: 'main.ts',
-    java: 'Main.java', c: 'main.c', 'c++': 'main.cpp',
-    go: 'main.go', rust: 'main.rs', ruby: 'main.rb',
-    php: 'main.php', bash: 'main.sh',
-  };
-  return map[language] || 'main.txt';
 }
 
 module.exports = { testCode, normalizeLang, LANG_MAP };

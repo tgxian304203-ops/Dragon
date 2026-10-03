@@ -1,8 +1,11 @@
 /* ═══════════════════════════════════════════════════════════════
-   🎯 LOGIC RUNNER — Match pattern + chạy logic
+   🎯 LOGIC RUNNER — Match pattern + chạy logic (async)
+   - Nhánh expr: mathjs (sync)
+   - Nhánh code/patch: Judge0 CE (async)
    ═══════════════════════════════════════════════════════════════ */
 
 const { evaluate } = require('mathjs');
+const { testCode } = require('./pistonTest');
 const logger = require('../utils/logger');
 
 /**
@@ -12,28 +15,18 @@ function normalizeQuery(query) {
   if (!query || typeof query !== 'string') return '';
 
   let s = query.trim();
-
-  // Thêm space quanh toán tử nếu thiếu
   s = s.replace(/(\d)\s*([+\-*/^=])\s*(\d)/g, '$1 $2 $3');
-
-  // Gộp space
   s = s.replace(/\s+/g, ' ').trim();
-
   return s;
 }
 
 /**
  * Chuyển pattern "{a} cộng {b}" → regex
- * - Space → \s*
- * - {a}, {b} → group số
  */
 function patternToRegex(pattern) {
   let s = String(pattern);
-
-  // Gộp space
   s = s.replace(/\s+/g, ' ').trim();
 
-  // Đánh dấu placeholder
   s = s.replace(/\{a\}/g, '\u0001NUM\u0001');
   s = s.replace(/\{b\}/g, '\u0001NUM\u0001');
   s = s.replace(/\{c\}/g, '\u0001NUM\u0001');
@@ -44,13 +37,9 @@ function patternToRegex(pattern) {
   s = s.replace(/\{error\}/g, '\u0001CODE\u0001');
   s = s.replace(/\{text\}/g, '\u0001CODE\u0001');
 
-  // Escape ký tự đặc biệt
   s = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-  // Space → \s*
   s = s.replace(/ /g, '\\s*');
 
-  // Khôi phục placeholder
   s = s.replace(/\u0001NUM\u0001/g, '(-?\\d+(?:\\.\\d+)?)');
   s = s.replace(/\u0001STR\u0001/g, '([\\w\\u00C0-\\u1EF9]+)');
   s = s.replace(/\u0001CODE\u0001/g, '(.+?)');
@@ -97,11 +86,26 @@ function matchPattern(patterns, query) {
 }
 
 /**
- * Chạy logic
+ * Nhận diện ngôn ngữ từ code (dùng cho nhánh code/patch)
  */
-function runLogic({ logicType, logicValue, vars }) {
+function detectLangFromCode(code) {
+  if (!code) return 'python';
+  if (/^\s*def\s+\w+\s*\(|print\s*\(/m.test(code)) return 'python';
+  if (/^\s*function\s+\w+\s*\(|console\.log/m.test(code)) return 'javascript';
+  if (/^\s*public\s+class|System\.out\.println/m.test(code)) return 'java';
+  if (/^\s*#include|int\s+main\s*\(/m.test(code)) return 'cpp';
+  if (/^\s*package\s+main|fmt\.Print/m.test(code)) return 'go';
+  if (/^\s*fn\s+main|println!/m.test(code)) return 'rust';
+  return 'python';
+}
+
+/**
+ * Chạy logic — ASYNC (vì nhánh code/patch gọi Judge0)
+ */
+async function runLogic({ logicType, logicValue, vars }) {
   if (!logicType) return { success: false, error: 'Thiếu logicType' };
 
+  // ═══ NHÁNH A — expr (mathjs) ═══
   if (logicType === 'expr') {
     if (!logicValue) return { success: false, error: 'Thiếu logicValue' };
 
@@ -120,6 +124,7 @@ function runLogic({ logicType, logicValue, vars }) {
     }
   }
 
+  // ═══ NHÁNH B — code (Judge0) ═══
   if (logicType === 'code') {
     if (!logicValue) return { success: false, error: 'Thiếu logicValue' };
 
@@ -127,9 +132,35 @@ function runLogic({ logicType, logicValue, vars }) {
     for (const [k, v] of Object.entries(vars || {})) {
       code = code.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
     }
-    return { success: true, kq: code, isCode: true };
+
+    const language = detectLangFromCode(code);
+    logger.info(`🧪 Nhánh code — chạy qua Judge0 (${language})`);
+
+    const result = await testCode({ code, language });
+
+    if (result.success) {
+      return {
+        success: true,
+        kq: code,
+        output: result.stdout,
+        language,
+        isCode: true,
+      };
+    }
+
+    // Vẫn trả code để user thấy, nhưng đánh dấu lỗi
+    logger.warn(`Judge0 chạy code lỗi: ${result.error}`);
+    return {
+      success: false,
+      kq: code,
+      output: result.stdout,
+      language,
+      isCode: true,
+      error: result.error,
+    };
   }
 
+  // ═══ NHÁNH C — patch (Judge0) ═══
   if (logicType === 'patch') {
     if (!logicValue) return { success: false, error: 'Thiếu logicValue' };
 
@@ -137,7 +168,31 @@ function runLogic({ logicType, logicValue, vars }) {
     for (const [k, v] of Object.entries(vars || {})) {
       patch = patch.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
     }
-    return { success: true, kq: patch, isPatch: true };
+
+    const language = detectLangFromCode(patch);
+    logger.info(`🧪 Nhánh patch — chạy qua Judge0 (${language})`);
+
+    const result = await testCode({ code: patch, language });
+
+    if (result.success) {
+      return {
+        success: true,
+        kq: patch,
+        output: result.stdout,
+        language,
+        isPatch: true,
+      };
+    }
+
+    logger.warn(`Judge0 chạy patch lỗi: ${result.error}`);
+    return {
+      success: false,
+      kq: patch,
+      output: result.stdout,
+      language,
+      isPatch: true,
+      error: result.error,
+    };
   }
 
   return { success: false, error: `logicType không hỗ trợ: ${logicType}` };
@@ -166,4 +221,5 @@ module.exports = {
   runLogic,
   formatOutput,
   normalizeQuery,
+  detectLangFromCode,
 };

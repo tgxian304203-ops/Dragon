@@ -33,7 +33,7 @@ const RAM_THRESHOLD_BYTES = RAM_THRESHOLD_MB * 1024 * 1024;
 // Model — TU6
 const MODEL_UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-// Piston — H5 (giữ tạm, sẽ xóa khi tích hợp E2B xong)
+// Piston — H5 (giữ tạm để không lỗi file cũ, không dùng nữa)
 const PISTON_URL = process.env.PISTON_URL || 'https://emkc.org/api/v2/piston';
 
 // Web Search — Tavily (W1) — thay DuckDuckGo
@@ -41,6 +41,10 @@ const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '';
 const TAVILY_API_BASE = process.env.TAVILY_API_BASE || 'https://api.tavily.com';
 const TAVILY_MAX_RESULTS = Number(process.env.TAVILY_MAX_RESULTS) || 5;
 const TAVILY_TIMEOUT_MS = 15000;
+
+// Judge0 CE — Sandbox chạy code (thay Piston public)
+const JUDGE0_API_URL = process.env.JUDGE0_API_URL || 'https://ce.judge0.com';
+const JUDGE0_TIMEOUT_MS = 30000;
 
 module.exports = {
   PORT, NODE_ENV, JWT_SECRET,
@@ -51,4 +55,5 @@ module.exports = {
   FILE_TTL_MS, RAM_THRESHOLD_MB, RAM_THRESHOLD_BYTES,
   MODEL_UPDATE_INTERVAL_MS, PISTON_URL,
   TAVILY_API_KEY, TAVILY_API_BASE, TAVILY_MAX_RESULTS, TAVILY_TIMEOUT_MS,
+  JUDGE0_API_URL, JUDGE0_TIMEOUT_MS,
 };
