@@ -436,7 +436,14 @@ body.light .icon-btn:active { background: rgba(0, 0, 0, 0.06); }
   animation: msgIn 0.2s ease;
 }
 
-.key-row-top { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.key-row-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  position: relative;
+  z-index: 3;
+}
 
 .key-status { font-size: 14px; }
 .key-provider { font-weight: 600; color: var(--text-main); text-transform: capitalize; }
@@ -447,19 +454,33 @@ body.light .icon-btn:active { background: rgba(0, 0, 0, 0.06); }
   font-variant-numeric: tabular-nums;
 }
 
+/* ═══ NÚT XÓA KEY — SỬA LỚN HƠN + CHỐNG GESTURE SCROLL ═══ */
 .key-del {
   margin-left: auto;
   background: transparent;
   border: none;
-  font-size: 14px;
+  font-size: 16px;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 8px 10px;
   border-radius: 8px;
   color: var(--text-muted);
   line-height: 1;
+  min-width: 36px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 10;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(239, 68, 68, 0.3);
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.key-del:active { background: rgba(239, 68, 68, 0.15); }
+.key-del:active {
+  background: rgba(239, 68, 68, 0.25);
+  color: var(--danger);
+}
 
 .key-row-bottom { display: flex; align-items: center; gap: 8px; }
 
