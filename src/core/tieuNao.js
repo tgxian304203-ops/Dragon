@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 TIỂU NÃO — Match pattern + tự chạy logic (không cần model)
+   🧠 TIỂU NÃO — Match pattern + chạy logic (không cần model)
    ═══════════════════════════════════════════════════════════════ */
 
 const { matchPattern, runLogic, formatOutput } = require('./logicRunner');
