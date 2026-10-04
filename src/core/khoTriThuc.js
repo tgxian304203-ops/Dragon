@@ -1,9 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
-   📚 KHO TRI THỨC — Search TIP theo ngữ nghĩa + fuzzy
-   - Lọc cứng theo intent + bỏ TIP deprecated
-   - Phạt nặng TIP không match pattern
-   - Bonus TIP có logicType khớp intent
-   - Fuzzy keyword + token match (JS thuần)
+   📚 KHO TRI THỨC — Search TIP + lưu TIP
+   - [SỬA] saveTIP lưu cayQuyetDinhJson
    ═══════════════════════════════════════════════════════════════ */
 
 const { getTipModel } = require('../models/tip.model');
@@ -15,11 +12,10 @@ const {
 const logger = require('../utils/logger');
 
 /* ═══════════════════════════════════════════════════════════════
-   SYNONYM MAP — mở rộng
+   SYNONYM MAP
    ═══════════════════════════════════════════════════════════════ */
 
 const SYNONYM_MAP = {
-  /* ═══ Sửa lỗi ═══ */
   'sửa': ['fix', 'debug', 'sửa lỗi', 'khắc phục', 'sua'],
   'fix': ['sửa', 'debug', 'sửa lỗi', 'bugfix'],
   'debug': ['sửa', 'fix', 'gỡ lỗi'],
@@ -28,7 +24,6 @@ const SYNONYM_MAP = {
   'error': ['lỗi', 'bug', 'sai'],
   'sai': ['lỗi', 'bug', 'sai sót'],
 
-  /* ═══ Code ═══ */
   'viết': ['tạo', 'code', 'lập trình', 'xây dựng', 'viet'],
   'code': ['viết code', 'lập trình', 'script', 'program', 'hàm'],
   'tạo': ['viết', 'xây dựng', 'lập', 'tao'],
@@ -36,7 +31,6 @@ const SYNONYM_MAP = {
   'function': ['hàm', 'method'],
   'lập trình': ['code', 'programming', 'lap trinh'],
 
-  /* ═══ Toán ═══ */
   'tính': ['toán', 'tính toán', 'giải', 'kết quả', 'tinh', 'calculate', 'compute'],
   'toán': ['tính', 'tính toán', 'phép tính', 'toan', 'math'],
   'cộng': ['tổng', 'addition', 'sum', '+', 'cộng lại', 'plus', 'cong', 'add'],
@@ -50,12 +44,10 @@ const SYNONYM_MAP = {
   'mũ': ['lũy thừa', 'power', '^', 'exponent', 'mu'],
   'lũy thừa': ['mũ', 'power'],
 
-  /* ═══ Giải thích ═══ */
   'giải thích': ['tại sao', 'vì sao', 'lý do', 'nguyên nhân', 'explain'],
   'tại sao': ['vì sao', 'lý do', 'nguyên nhân', 'why'],
   'khái niệm': ['định nghĩa', 'lý thuyết', 'concept'],
 
-  /* ═══ Ký hiệu ═══ */
   '+': ['cộng', 'tổng', 'addition', 'sum', 'plus'],
   '-': ['trừ', 'hiệu', 'subtraction', 'minus'],
   '*': ['nhân', 'tích', 'multiplication', 'times'],
@@ -89,26 +81,20 @@ function detectIntent(query) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   TOKENIZE
+   TOKENIZE + SYNONYM + NGRAM
    ═══════════════════════════════════════════════════════════════ */
 
 function tokenize(text) {
   if (!text) return [];
   const s = String(text).toLowerCase();
-
-  // Chuẩn hóa số thập phân
   const normalized = s.replace(/(\d),(\d)/g, '$1.$2');
-
   const cleaned = normalized.replace(/[^\p{L}\p{N}\s+\-*/^=().]/gu, ' ');
-
-  return cleaned
-    .split(/\s+/)
-    .filter((w) => {
-      if (w.length < 1) return false;
-      if (/^[+\-*/^=()]$/.test(w)) return true;
-      if (/^\d+(?:\.\d+)?$/.test(w)) return true;
-      return w.length >= 2 && !STOP_WORDS.has(w);
-    });
+  return cleaned.split(/\s+/).filter((w) => {
+    if (w.length < 1) return false;
+    if (/^[+\-*/^=()]$/.test(w)) return true;
+    if (/^\d+(?:\.\d+)?$/.test(w)) return true;
+    return w.length >= 2 && !STOP_WORDS.has(w);
+  });
 }
 
 function expandSynonyms(tokens) {
@@ -128,12 +114,7 @@ function expandSynonyms(tokens) {
 
 function extractNgrams(query, maxN = 3) {
   const normalized = (query || '').toLowerCase().replace(/(\d),(\d)/g, '$1.$2');
-
-  const words = normalized
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .split(/\s+/)
-    .filter((w) => w.length >= 2);
-
+  const words = normalized.replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter((w) => w.length >= 2);
   const ngrams = [];
   for (let n = 2; n <= maxN; n++) {
     for (let i = 0; i <= words.length - n; i++) {
@@ -151,49 +132,27 @@ function intentCanLogic(intent) {
   return ['math', 'code', 'bugfix'].includes(intent);
 }
 
-/**
- * Đếm số keyword khớp exact HOẶC fuzzy.
- */
 function countKeywordHits(tipKeywords, ctx) {
   let hits = 0;
   for (const kw of tipKeywords) {
-    // Exact
-    if (ctx.synonyms.includes(kw) || ctx.tokens.includes(kw)) {
-      hits++;
-      continue;
-    }
-    // Fuzzy — so với từng token user
+    if (ctx.synonyms.includes(kw) || ctx.tokens.includes(kw)) { hits++; continue; }
     let fuzzyHit = false;
     for (const tok of ctx.tokens) {
-      if (fuzzyEqual(kw, tok, 0.8)) {
-        fuzzyHit = true;
-        break;
-      }
+      if (fuzzyEqual(kw, tok, 0.8)) { fuzzyHit = true; break; }
     }
     if (fuzzyHit) hits++;
   }
   return hits;
 }
 
-/**
- * Đếm số token user khớp exact HOẶC fuzzy với text TIP.
- */
 function countTokenHits(tipText, ctx) {
   let hits = 0;
   const tipWords = tipText.split(/\s+/).filter((w) => w.length >= 2);
-
   for (const tok of ctx.tokens) {
     if (tok.length < 2) continue;
-    if (tipText.includes(tok)) {
-      hits++;
-      continue;
-    }
-    // Fuzzy
+    if (tipText.includes(tok)) { hits++; continue; }
     for (const tw of tipWords) {
-      if (fuzzyEqual(tok, tw, 0.8)) {
-        hits++;
-        break;
-      }
+      if (fuzzyEqual(tok, tw, 0.8)) { hits++; break; }
     }
   }
   return hits;
@@ -201,7 +160,6 @@ function countTokenHits(tipText, ctx) {
 
 function scoreTIP(tip, ctx) {
   let score = 0;
-
   const tipKeywords = (tip.keywords || []).map((k) => String(k).toLowerCase());
   const tipText = [
     tip.nguyenLy, tip.quyTac, tip.dieuKien, tip.cayQuyetDinh,
@@ -213,7 +171,6 @@ function scoreTIP(tip, ctx) {
   const tipCategory = String(tip.category || 'general').toLowerCase();
   const tipLogicType = String(tip.logicType || '').toLowerCase();
 
-  /* ═══ Điểm category ═══ */
   if (ctx.intent !== 'general') {
     if (tipCategory === ctx.intent) score += 30;
     else if (tipCategory === 'general') score += 5;
@@ -222,30 +179,24 @@ function scoreTIP(tip, ctx) {
     score += 5;
   }
 
-  /* ═══ Bonus logicType khớp intent ═══ */
   if (ctx.intent === 'math' && tipLogicType === 'expr') score += 40;
   if (ctx.intent === 'code' && (tipLogicType === 'code' || tipLogicType === 'patch')) score += 40;
   if (ctx.intent === 'bugfix' && tipLogicType === 'patch') score += 40;
 
-  /* ═══ Phạt TIP không có logic khi intent cần logic ═══ */
   if (intentCanLogic(ctx.intent) && !tipLogicType) score -= 30;
 
-  /* ═══ [MỚI] Keyword khớp exact + fuzzy ═══ */
   const kwHits = countKeywordHits(tipKeywords, ctx);
   score += Math.min(60, kwHits * 30);
 
-  /* ═══ [MỚI] Token khớp exact + fuzzy ═══ */
   const tokenHits = countTokenHits(tipText, ctx);
   score += Math.min(20, tokenHits * 3);
 
-  /* ═══ Ngram khớp ═══ */
   let ngramHits = 0;
   for (const gram of ctx.ngrams) {
     if (tipText.includes(gram)) ngramHits++;
   }
   score += Math.min(16, ngramHits * 8);
 
-  /* ═══ Quality ═══ */
   score += (tip.qualityScore || 0) * 0.05;
 
   return Math.round(score * 100) / 100;
@@ -273,7 +224,6 @@ async function searchTIP(query, options = {}) {
 
   let candidates = [];
   try {
-    // [MỚI] Bỏ TIP deprecated
     candidates = await Tip.find({ isDeprecated: { $ne: true } })
       .limit(limit * 10)
       .lean();
@@ -295,11 +245,9 @@ async function searchTIP(query, options = {}) {
         if (vars) {
           score += 100;
           patternMatched = true;
-
-          // Nếu là fuzzy match → cộng ít hơn
           if (vars._fuzzy) {
             fuzzyMatched = true;
-            score = 100 - 30; // fuzzy → 70 thay vì 100
+            score = 100 - 30;
             logger.debug(`Fuzzy pattern match TIP ${tip._id}: +70`);
           } else {
             logger.debug(`Regex pattern match TIP ${tip._id}: +100`);
@@ -317,7 +265,6 @@ async function searchTIP(query, options = {}) {
     return { ...tip, _score: score, _patternMatched: patternMatched, _fuzzyMatched: fuzzyMatched };
   });
 
-  // Lọc cứng theo intent
   let filtered = scored;
   if (intent !== 'general') {
     filtered = scored.filter((t) => {
@@ -338,7 +285,7 @@ async function searchTIP(query, options = {}) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SAVE TIP
+   [SỬA] SAVE TIP — THÊM cayQuyetDinhJson
    ═══════════════════════════════════════════════════════════════ */
 
 async function saveTIP(tipData) {
@@ -371,7 +318,7 @@ async function saveTIP(tipData) {
     logicValue: tipData.logicValue || '',
     outputTpl: tipData.outputTpl || '',
     tests: tipData.tests || [],
-    // Feedback fields mặc định
+    cayQuyetDinhJson: tipData.cayQuyetDinhJson || null,   // ← [SỬA] THÊM DÒNG NÀY
     usageCount: 0,
     successCount: 0,
     failCount: 0,
@@ -384,7 +331,8 @@ async function saveTIP(tipData) {
 
   logger.success(
     `Lưu TIP Kho 2: ${tip._id} [${tip.category}] ` +
-    `patterns=${(tip.patterns || []).length}, logicType=${tip.logicType}`
+    `patterns=${(tip.patterns || []).length}, logicType=${tip.logicType}, ` +
+    `rules=${tip.cayQuyetDinhJson ? (tip.cayQuyetDinhJson.rules || []).length : 0}`
   );
   return tip;
 }
@@ -398,17 +346,8 @@ async function countTIP() {
 }
 
 module.exports = {
-  searchTIP,
-  saveTIP,
-  getTIPById,
-  countTIP,
-  detectIntent,
-  extractNgrams,
-  expandSynonyms,
-  scoreTIP,
-  tokenize,
-  intentCanLogic,
-  // [MỚI]
-  countKeywordHits,
-  countTokenHits,
+  searchTIP, saveTIP, getTIPById, countTIP,
+  detectIntent, extractNgrams, expandSynonyms, scoreTIP,
+  tokenize, intentCanLogic,
+  countKeywordHits, countTokenHits,
 };
