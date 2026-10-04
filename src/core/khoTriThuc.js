@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    📚 KHO TRI THỨC — Search TIP + lưu TIP
    - [SỬA] saveTIP lưu cayQuyetDinhJson
+   - [SỬA] searchTIP không phạt nặng TIP có cây quyết định
    ═══════════════════════════════════════════════════════════════ */
 
 const { getTipModel } = require('../models/tip.model');
@@ -203,7 +204,7 @@ function scoreTIP(tip, ctx) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SEARCH TIP
+   [SỬA] SEARCH TIP — Không phạt nặng TIP có cây quyết định
    ═══════════════════════════════════════════════════════════════ */
 
 async function searchTIP(query, options = {}) {
@@ -238,6 +239,12 @@ async function searchTIP(query, options = {}) {
     let score = 0;
     let patternMatched = false;
     let fuzzyMatched = false;
+    let hasCay = false;
+
+    // Kiểm TIP có cây quyết định không
+    if (tip.cayQuyetDinhJson && Array.isArray(tip.cayQuyetDinhJson.rules) && tip.cayQuyetDinhJson.rules.length > 0) {
+      hasCay = true;
+    }
 
     if (Array.isArray(tip.patterns) && tip.patterns.length > 0) {
       try {
@@ -253,7 +260,14 @@ async function searchTIP(query, options = {}) {
             logger.debug(`Regex pattern match TIP ${tip._id}: +100`);
           }
         } else {
-          score -= 200;
+          // [SỬA] Phạt nhẹ nếu TIP có cây quyết định (vẫn có thể xử lý)
+          if (hasCay) {
+            score -= 20;
+            logger.debug(`Pattern không match nhưng TIP ${tip._id} có cây → phạt nhẹ -20`);
+          } else {
+            score -= 200;
+            logger.debug(`Pattern không match và TIP ${tip._id} không có cây → phạt nặng -200`);
+          }
         }
       } catch (err) {
         logger.warn(`Pattern check lỗi TIP ${tip._id}: ${err.message}`);
@@ -262,7 +276,7 @@ async function searchTIP(query, options = {}) {
 
     score += scoreTIP(tip, ctx);
 
-    return { ...tip, _score: score, _patternMatched: patternMatched, _fuzzyMatched: fuzzyMatched };
+    return { ...tip, _score: score, _patternMatched: patternMatched, _fuzzyMatched: fuzzyMatched, _hasCay: hasCay };
   });
 
   let filtered = scored;
@@ -281,11 +295,16 @@ async function searchTIP(query, options = {}) {
     `Kho 2: ${candidates.length} thô → ${filtered.length} sau lọc intent=${intent} → ${passed.length} pass (≥${minScore})`
   );
 
-  return passed.slice(0, limit).map(({ _score, _patternMatched, _fuzzyMatched, ...tip }) => tip);
+  // Log top 3 TIP để debug
+  passed.slice(0, 3).forEach((t, i) => {
+    logger.debug(`  [${i + 1}] TIP ${t._id} score=${t._score} hasCay=${t._hasCay} patternMatch=${t._patternMatched}`);
+  });
+
+  return passed.slice(0, limit).map(({ _score, _patternMatched, _fuzzyMatched, _hasCay, ...tip }) => tip);
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   [SỬA] SAVE TIP — THÊM cayQuyetDinhJson
+   SAVE TIP
    ═══════════════════════════════════════════════════════════════ */
 
 async function saveTIP(tipData) {
@@ -318,7 +337,7 @@ async function saveTIP(tipData) {
     logicValue: tipData.logicValue || '',
     outputTpl: tipData.outputTpl || '',
     tests: tipData.tests || [],
-    cayQuyetDinhJson: tipData.cayQuyetDinhJson || null,   // ← [SỬA] THÊM DÒNG NÀY
+    cayQuyetDinhJson: tipData.cayQuyetDinhJson || null,
     usageCount: 0,
     successCount: 0,
     failCount: 0,
