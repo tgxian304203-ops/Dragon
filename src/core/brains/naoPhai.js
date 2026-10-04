@@ -3,6 +3,7 @@
    - Verify pattern match câu gốc
    - Verify logicType khớp intent
    - Chạy tests mathjs cho expr
+   - [MỚI] Issues severity high → tự set needSupplement=true
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
@@ -44,19 +45,13 @@ function sanitizeJsonText(text) {
 
 function parseJSONFromModel(raw) {
   if (!raw || typeof raw !== 'string') throw new Error('Output rỗng');
-
   const text = raw.trim();
   const candidates = [text];
-
   const noMd = text.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, '$1').trim();
   if (noMd !== text) candidates.push(noMd);
-
   const first = text.indexOf('{');
   const last = text.lastIndexOf('}');
-  if (first !== -1 && last > first) {
-    candidates.push(text.slice(first, last + 1));
-  }
-
+  if (first !== -1 && last > first) candidates.push(text.slice(first, last + 1));
   candidates.push(sanitizeJsonText(text));
 
   let lastErr = null;
@@ -64,7 +59,6 @@ function parseJSONFromModel(raw) {
     if (!cand) continue;
     try { return JSON.parse(cand); } catch (err) { lastErr = err; }
   }
-
   logger.warn(`❌ Não phải parse JSON fail. Raw (300 ký tự đầu): ${text.slice(0, 300)}`);
   throw new Error(`Không parse được JSON: ${lastErr?.message || 'unknown'}`);
 }
@@ -123,7 +117,6 @@ function verifyPattern(tip, originalProblem) {
   if (!originalProblem || !Array.isArray(tip.patterns) || tip.patterns.length === 0) {
     return { matched: false, vars: null };
   }
-
   try {
     const vars = matchPattern(tip.patterns, originalProblem);
     return { matched: !!vars, vars };
@@ -133,61 +126,35 @@ function verifyPattern(tip, originalProblem) {
   }
 }
 
-/**
- * [MỚI] Verify logicType khớp intent — chặt hơn.
- */
 function verifyLogicTypeForIntent(tip, originalProblem) {
   if (!originalProblem) return { ok: true };
-
   const q = originalProblem.toLowerCase();
 
-  // Câu hỏi toán — phép tính
   const isMath = /\b(tính|toán|phép|cộng|trừ|nhân|chia|tổng|hiệu|tích|thương|mũ|bình phương|[+\-*/^])\b/i.test(q);
-
-  // Câu hỏi viết code
   const isCode = /\b(viết|tạo|code|lập trình|hàm|function|script|chương trình)\b/i.test(q);
-
-  // Câu hỏi sửa code
   const isBugfix = /\b(sửa|fix|debug|lỗi|bug|error|khắc phục)\b/i.test(q);
 
   const lt = tip.logicType || '';
 
-  /* ═══ Câu hỏi TOÁN — phải là "expr" ═══ */
   if (isMath && !isCode) {
     if (lt !== 'expr') {
-      return {
-        ok: false,
-        reason: `Câu hỏi toán nhưng logicType="${lt}" — phải là "expr"`,
-      };
+      return { ok: false, reason: `Câu hỏi toán nhưng logicType="${lt}" — phải là "expr"` };
     }
-
-    // Kiểm tra logicValue không phải code
     const lv = String(tip.logicValue || '');
     if (/print\s*\(|def\s+\w+|function\s+\w+|console\.log|=\s*\d+\s*$/m.test(lv)) {
-      return {
-        ok: false,
-        reason: `logicValue chứa code nhưng logicType="expr" — logicValue phải là biểu thức toán`,
-      };
+      return { ok: false, reason: `logicValue chứa code nhưng logicType="expr"` };
     }
   }
 
-  /* ═══ Câu hỏi CODE — phải là "code" hoặc "patch" ═══ */
   if (isCode && !isBugfix) {
     if (!['code', 'patch'].includes(lt)) {
-      return {
-        ok: false,
-        reason: `Câu hỏi code nhưng logicType="${lt}" — phải là "code" hoặc "patch"`,
-      };
+      return { ok: false, reason: `Câu hỏi code nhưng logicType="${lt}" — phải là "code" hoặc "patch"` };
     }
   }
 
-  /* ═══ Câu hỏi BUGFIX — phải là "patch" ═══ */
   if (isBugfix) {
     if (lt !== 'patch') {
-      return {
-        ok: false,
-        reason: `Câu hỏi bugfix nhưng logicType="${lt}" — phải là "patch"`,
-      };
+      return { ok: false, reason: `Câu hỏi bugfix nhưng logicType="${lt}" — phải là "patch"` };
     }
   }
 
@@ -195,7 +162,7 @@ function verifyLogicTypeForIntent(tip, originalProblem) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   CHẠY TESTS (mathjs cho expr)
+   CHẠY TESTS
    ═══════════════════════════════════════════════════════════════ */
 
 function parseNum(v) {
@@ -217,9 +184,7 @@ function runTests(tip) {
   for (const tc of tip.tests) {
     try {
       const scope = {};
-      for (const [k, v] of Object.entries(tc.input || {})) {
-        scope[k] = parseNum(v);
-      }
+      for (const [k, v] of Object.entries(tc.input || {})) scope[k] = parseNum(v);
       const got = evaluate(tip.logicValue, scope);
       const pass = got == tc.expected;
       results.push({ input: tc.input, expected: tc.expected, got, pass });
@@ -265,13 +230,7 @@ async function goiPhaiVaParse({ owner, messages, tempKeys, label }) {
       const evaluation = normalizeEvaluation(rawObj);
       return {
         evaluation,
-        meta: {
-          provider: result.provider,
-          modelId: result.modelId,
-          keyId: result.keyId,
-          usage: result.usage,
-          attempts: attempt,
-        },
+        meta: { provider: result.provider, modelId: result.modelId, keyId: result.keyId, usage: result.usage, attempts: attempt },
       };
     } catch (parseErr) {
       lastErr = parseErr;
@@ -333,24 +292,23 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
     });
   }
 
-  /* ═══ BƯỚC 4 — Nếu có issue → fail luôn, không cần gọi model ═══ */
-  if (issues.length > 0) {
-    logger.warn(`🧠 Não phải: ${issues.length} issue — fail luôn`);
+  /* ═══ BƯỚC 4 — Nếu có issue severity high → fail + needSupplement ═══ */
+  const highIssues = issues.filter((i) => i.severity === 'high');
+
+  if (highIssues.length > 0) {
+    logger.warn(`🧠 Não phải: ${highIssues.length} issue high — fail luôn (needSupplement=true)`);
+
+    // [SỬA] Set needSupplement=true + gom missingFields từ issues
+    const missingFromIssues = [...new Set(highIssues.map((i) => i.field).filter((f) => FIELDS_14.includes(f) || ['patterns', 'logicType', 'logicValue', 'outputTpl'].includes(f)))];
 
     return {
       evaluation: {
-        missingFields: [],
-        reason: `Có ${issues.length} lỗi khi verify: pattern/logicType/tests`,
-        numericTest: {
-          example: '',
-          calculation: '',
-          expected: '',
-          actual: '',
-          match: false,
-        },
+        missingFields: missingFromIssues,
+        reason: `Có ${highIssues.length} lỗi khi verify: pattern/logicType/tests`,
+        numericTest: { example: '', calculation: '', expected: '', actual: '', match: false },
         issues,
         suggestions: ['Sửa patterns/logicType/logicValue để pass verify'],
-        needSupplement: false,
+        needSupplement: true,   // ← [SỬA] LUÔN TRUE khi có issue high
         needWebSearch: false,
         searchQuery: '',
         testsFailed: !testResult.allPass,
@@ -420,10 +378,6 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
 }
 
 module.exports = {
-  kiemChung,
-  parseJSONFromModel,
-  normalizeEvaluation,
-  runTests,
-  verifyPattern,
-  verifyLogicTypeForIntent,
+  kiemChung, parseJSONFromModel, normalizeEvaluation,
+  runTests, verifyPattern, verifyLogicTypeForIntent,
 };
