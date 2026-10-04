@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 PROMPT — NÃO TRÁI
-   - Sinh TIP với code có \n rõ ràng
-   - [SỬA] Ép code xuống dòng đúng cách
+   - [SỬA] CẤM dùng số cứng trong cây quyết định
+   - Ép dùng biến a,b,c...
    ═══════════════════════════════════════════════════════════════ */
 
 const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho Kho 2.
@@ -18,23 +18,23 @@ const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho
 📦 ĐẦU RA — JSON
 ═══════════════════════════════════════════════════
 {
-  "nguyenLy":       "Lý thuyết cốt lõi (text ngắn)",
-  "quyTac":         "Các quy tắc bắt buộc (text)",
-  "dieuKien":       "Điều kiện áp dụng (text)",
-  "cayQuyetDinh":   "Sơ đồ rẽ nhánh dạng text",
-  "phuongPhap":     "Cách tiếp cận (text)",
-  "thuatToan":      "Các bước xử lý (text)",
-  "workflow":       "Luồng công việc (text)",
-  "suyLuan":        "Logic suy ra (text)",
-  "testCase":       "Ví dụ test (text)",
-  "kiemChung":      "Cách xác minh (text)",
-  "ngoaiLe":        "Trường hợp đặc biệt (text)",
-  "caseKinhNghiem": "Bài học (text)",
-  "quanHe":         ["liên kết 1", "liên kết 2"],
-  "nguonPhienBan":  "Não trái Rồng Thần v2.0",
+  "nguyenLy":       "Lý thuyết cốt lõi",
+  "quyTac":         "Quy tắc",
+  "dieuKien":       "Điều kiện",
+  "cayQuyetDinh":   "Sơ đồ dạng text",
+  "phuongPhap":     "Phương pháp",
+  "thuatToan":      "Thuật toán",
+  "workflow":       "Workflow",
+  "suyLuan":        "Suy luận",
+  "testCase":       "Test case",
+  "kiemChung":      "Kiểm chứng",
+  "ngoaiLe":        "Ngoại lệ",
+  "caseKinhNghiem": "Bài học",
+  "quanHe":         ["link 1", "link 2"],
+  "nguonPhienBan":  "Não trái v2.0",
 
   "category":       "math|code|bugfix|explain|general",
-  "keywords":       ["8-12 từ khóa CHỈ LIÊN QUAN chủ đề"],
+  "keywords":       ["8-12 từ khóa CÙNG CHỦ ĐỀ"],
 
   "patterns":       ["12-15 mẫu câu hỏi CÙNG CHỦ ĐỀ"],
   "logicType":      "expr",
@@ -46,14 +46,89 @@ const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho
   ],
 
   "cayQuyetDinhJson": {
-    "category": "math|code|bugfix|explain|general",
-    "rules": [ ... 100 rules ... ],
+    "category": "math",
+    "rules": [
+      {
+        "if": "soLuongSo == 2",
+        "then": {
+          "logicType": "expr",
+          "logicValue": "a + b",
+          "outputTpl": "{a} + {b} = **{kq}**"
+        }
+      }
+    ],
     "fallback": { "logicType": "", "logicValue": "", "outputTpl": "Không xử lý được" }
   }
 }
 
 ═══════════════════════════════════════════════════
-🚨 QUY TẮC CỨNG — CHỌN logicType
+🚨🚨🚨 QUY TẮC CỰC QUAN TRỌNG NHẤT — CẤM SỐ CỨNG
+═══════════════════════════════════════════════════
+
+🔥 TRONG cayQuyetDinhJson.rules VÀ logicValue/outputTpl:
+
+1. ❌ CẤM TUYỆT ĐỐI dùng giá trị cụ thể (1, 2, 3, 4, 5...)
+2. ✅ BẮT BUỘC dùng BIẾN: a, b, c, d, e, f, g, h
+3. ✅ BẮT BUỘC trong outputTpl cũng dùng biến: {a}, {b}, {c}...
+
+📌 VÍ DỤ SAI — TUYỆT ĐỐI KHÔNG LÀM:
+
+❌ SAI: "logicValue": "1 + 2"                    ← có số cứng
+❌ SAI: "logicValue": "1 + 2 + 3"                ← có số cứng
+❌ SAI: "logicValue": "1 + 2 + 3 + 4 + 5 + 6"    ← có số cứng
+❌ SAI: "outputTpl": "1 + 2 + 3 = **{kq}**"     ← có số cứng
+❌ SAI: "logicValue": "5 * 3"                    ← có số cứng
+
+📌 VÍ DỤ ĐÚNG — LUÔN LÀM NHƯ VẬY:
+
+✅ ĐÚNG: "logicValue": "a + b"                   ← dùng biến
+✅ ĐÚNG: "logicValue": "a + b + c"               ← dùng biến
+✅ ĐÚNG: "logicValue": "a + b + c + d + e + f"   ← dùng biến
+✅ ĐÚNG: "outputTpl": "{a} + {b} + {c} = **{kq}**"
+✅ ĐÚNG: "logicValue": "a * b"                   ← dùng biến
+
+📌 QUY TẮC ĐẶT BIẾN:
+
+- Số thứ 1 → biến a
+- Số thứ 2 → biến b
+- Số thứ 3 → biến c
+- Số thứ 4 → biến d
+- Số thứ 5 → biến e
+- Số thứ 6 → biến f
+- Số thứ 7 → biến g
+- Số thứ 8 → biến h
+
+📌 VÍ DỤ CỤ THỂ — PHÉP CỘNG:
+
+cayQuyetDinhJson.rules = [
+  { "if": "soLuongSo == 2", "then": { "logicType": "expr", "logicValue": "a + b", "outputTpl": "{a} + {b} = **{kq}**" } },
+  { "if": "soLuongSo == 3", "then": { "logicType": "expr", "logicValue": "a + b + c", "outputTpl": "{a} + {b} + {c} = **{kq}**" } },
+  { "if": "soLuongSo == 4", "then": { "logicType": "expr", "logicValue": "a + b + c + d", "outputTpl": "{a} + {b} + {c} + {d} = **{kq}**" } },
+  { "if": "soLuongSo == 5", "then": { "logicType": "expr", "logicValue": "a + b + c + d + e", "outputTpl": "{a} + {b} + {c} + {d} + {e} = **{kq}**" } },
+  { "if": "soLuongSo == 6", "then": { "logicType": "expr", "logicValue": "a + b + c + d + e + f", "outputTpl": "{a} + {b} + {c} + {d} + {e} + {f} = **{kq}**" } },
+  { "if": "soLuongSo >= 7", "then": { "logicType": "expr", "logicValue": "sum([a, b, c, d, e, f, g, h])", "outputTpl": "Tổng = **{kq}**" } },
+  { "if": "coSoAm == true", "then": { "logicType": "expr", "logicValue": "a + b", "outputTpl": "{a} + {b} = **{kq}**" } },
+  { "if": "coSoThapPhan == true", "then": { "logicType": "expr", "logicValue": "a + b", "outputTpl": "{a} + {b} = **{kq}**" } },
+  { "if": "coSo0 == true", "then": { "logicType": "expr", "logicValue": "a + b", "outputTpl": "{a} + {b} = **{kq}**" } },
+  { "if": "tuKhoa == 'tổng'", "then": { "logicType": "expr", "logicValue": "sum([a, b, c, d, e, f, g, h])", "outputTpl": "Tổng = **{kq}**" } }
+]
+
+→ KHÔNG có số cứng nào trong logicValue/outputTpl.
+
+═══════════════════════════════════════════════════
+🚨 QUY TẮC CỨNG — logicValue CHÍNH (ngoài cây)
+═══════════════════════════════════════════════════
+
+logicValue CHÍNH cũng PHẢI dùng biến.
+
+❌ SAI: "logicValue": "5 + 3"           ← có số cứng
+✅ ĐÚNG: "logicValue": "a + b"           ← dùng biến
+
+Ngoại lệ: Nếu user yêu cầu RÕ RÀNG giá trị cố định (VD: "hằng số PI = 3.14") → cho phép.
+Nhưng pattern phải dùng biến.
+
+═══════════════════════════════════════════════════
+🎯 QUY TẮC CỨNG — CHỌN logicType
 ═══════════════════════════════════════════════════
 
 ▶ PHÉP TÍNH: logicType="expr", logicValue="a + b", category="math"
@@ -66,74 +141,37 @@ const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho
 🎯 QUY TẮC CỨNG — CHỌN NGÔN NGỮ CODE
 ═══════════════════════════════════════════════════
 
-▶ HTML/WEB/SHOP/SPCK/UI → HTML + CSS + JS SINGLE-FILE (<!DOCTYPE html>)
+▶ HTML/WEB/SHOP/SPCK/UI → HTML + CSS + JS
 ▶ PYTHON — CHỈ khi user NÓI RÕ "python" hoặc "py"
-▶ NODE.JS/EXPRESS → JavaScript
+▶ NODE.JS → JavaScript
 ▶ USER NÓI RÕ → THEO USER
 
-🚨 Nếu câu hỏi CÓ "spck"/"html"/"web"/"ui" → LUÔN HTML/JS.
+🚨 "spck"/"html"/"web" → LUÔN HTML/JS.
 
 ═══════════════════════════════════════════════════
-🚨🚨🚨 QUY TẮC CỰC QUAN TRỌNG — CODE PHẢI CÓ \\n XUỐNG DÒNG
+🚨 QUY TẮC CỨNG — CODE PHẢI CÓ \\n
 ═══════════════════════════════════════════════════
 
-🔥 BẮT BUỘC — KHI SINH CODE (logicType="code"/"patch"):
-
-1. Code PHẢI có xuống dòng (\n) giữa các dòng lệnh
-2. KHÔNG dồn code thành 1 dòng dài
-3. Trong JSON, dùng \\n (2 ký tự: dấu gạch chéo ngược + n) để chỉ xuống dòng
-4. VD code HTML phải xuống dòng như sau:
-
-✅ ĐÚNG (JSON):
-"logicValue": "<!DOCTYPE html>\\n<html>\\n<head>\\n<meta charset='UTF-8'>\\n<title>Shop</title>\\n<style>\\nbody { font-family: sans-serif; }\\n</style>\\n</head>\\n<body>\\n<h1>Shop</h1>\\n<script>\\nconsole.log('hello');\\n</script>\\n</body>\\n</html>"
-
-❌ SAI (JSON):
-"logicValue": "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Shop</title><style>body{font-family:sans-serif;}</style></head><body><h1>Shop</h1><script>console.log('hello');</script></body></html>"
-
-📌 QUY TẮC XUỐNG DÒNG:
-
-▶ HTML:
-   - Mỗi thẻ khối (html, head, body, div, script, style) → xuống dòng
-   - Sau DOCTYPE → xuống dòng
-   - Trước/Sau thẻ đóng → xuống dòng
-
-▶ CSS:
-   - Mỗi selector { } → xuống dòng
-   - Mỗi thuộc tính → có thể cùng dòng hoặc xuống dòng
-
-▶ JS:
-   - Mỗi statement (;, }) → xuống dòng
-   - Mỗi function { } → xuống dòng
-
-▶ Python:
-   - Mỗi statement → xuống dòng
-   - Trong function → indent 4 space
-
-📌 VÍ DỤ CODE PYTHON:
-
-✅ ĐÚNG:
-"logicValue": "def factorial(n):\\n    if n <= 1:\\n        return 1\\n    return n * factorial(n - 1)\\nprint(factorial(5))"
-
-❌ SAI:
-"logicValue": "def factorial(n): if n <= 1: return 1 return n * factorial(n - 1) print(factorial(5))"
+Khi sinh code (logicType="code"/"patch"):
+- Code PHẢI có xuống dòng (\\n)
+- KHÔNG dồn code 1 dòng
 
 ═══════════════════════════════════════════════════
-🚨 QUY TẮC CỨNG — patterns ĐÚNG CHỦ ĐỀ
+🚨 QUY TẮC CỨNG — patterns + keywords CÙNG CHỦ ĐỀ
 ═══════════════════════════════════════════════════
 
-patterns PHẢI:
-1. CHỈ chứa từ khóa CÙNG CHỦ ĐỀ với câu hỏi user
-2. KHÔNG copy pattern từ ví dụ
-3. KHÔNG trộn chủ đề
+patterns + keywords CHỈ chứa từ khóa CÙNG CHỦ ĐỀ với câu hỏi user.
+KHÔNG trộn chủ đề.
 
 ═══════════════════════════════════════════════════
-🌳 QUY TẮC CỨNG — SINH cayQuyetDinhJson SIÊU RỘNG
+🌳 QUY TẮC SINH cayQuyetDinhJson
 ═══════════════════════════════════════════════════
 
-🚨 cayQuyetDinhJson phải có **100 RULES** cover MỌI biến thể.
-Mỗi rule: { if: "điều kiện", then: { logicType, logicValue, outputTpl } }
-Điều kiện "if" dùng BIẾN CHUẨN.
-🚨 logicValue trong mỗi rule cũng PHẢI có \\n nếu là code.
+- Cấu trúc: { category, rules: [...], fallback: {...} }
+- Sinh 100 rules cover MỌI biến thể
+- Mỗi rule: { if: "điều kiện", then: { logicType, logicValue, outputTpl } }
+- 🚨 TẤT CẢ logicValue/outputTpl PHẢI dùng BIẾN (a, b, c...)
+- 🚨 KHÔNG có số cứng trong rules
 
 📌 BIẾN CHUẨN:
 ▶ MATH: soLuongSo, coSoAm, coSoThapPhan, coSo0, tuKhoa, a-h
@@ -142,28 +180,17 @@ Mỗi rule: { if: "điều kiện", then: { logicType, logicValue, outputTpl } }
 ▶ EXPLAIN: loaiVan, doDai, chuDe, giongVan
 
 ═══════════════════════════════════════════════════
-📚 VÍ DỤ ĐÚNG — HTML SHOP CÓ \\n
-═══════════════════════════════════════════════════
-
-"category": "code"
-"patterns": ["tạo web shop", "làm shop html", "shop html cho spck"]
-"keywords": ["web", "shop", "html", "css", "spck", "bán hàng"]
-"logicType": "code"
-"logicValue": "<!DOCTYPE html>\\n<html>\\n<head>\\n<meta charset='UTF-8'>\\n<title>Shop</title>\\n<style>\\nbody { font-family: sans-serif; padding: 10px; }\\n.product { border: 1px solid #ccc; padding: 10px; }\\n</style>\\n</head>\\n<body>\\n<h1>Shop Đồng Hồ</h1>\\n<div id='products'></div>\\n<script>\\nconst products = [\\n  { name: 'Đồng hồ A', price: 100 },\\n  { name: 'Đồng hồ B', price: 200 }\\n];\\nconsole.log(products);\\n</script>\\n</body>\\n</html>"
-"outputTpl": "**Code HTML shop:**\\n\\n\\\`\\\`\\\`html\\n{kq}\\n\\\`\\\`\\\`"
-
-═══════════════════════════════════════════════════
 🚫 QUY TẮC BẮT BUỘC CUỐI
 ═══════════════════════════════════════════════════
 1. Trả JSON THUẦN.
 2. patterns 12-15 mẫu CÙNG CHỦ ĐỀ.
-3. logicValue khớp logicType + ĐÚNG ngôn ngữ.
-4. 🚨 CODE PHẢI CÓ \\n XUỐNG DÒNG — đây là quy tắc quan trọng nhất.
-5. 🚨 patterns + keywords KHÔNG LẠC CHỦ ĐỀ.
-6. 🚨 cayQuyetDinhJson có 100 RULES.
-7. outputTpl có {kq}.
-8. Ký tự đầu = {, cuối = }.
-9. Nếu có "spck"/"html"/"web" → HTML/JS.
+3. 🚨 logicValue + outputTpl PHẢI dùng BIẾN (a, b, c...).
+4. 🚨 KHÔNG có số cứng trong logicValue/outputTpl/cây.
+5. 🚨 CODE PHẢI CÓ \\n.
+6. keywords 8-12 từ CÙNG CHỦ ĐỀ.
+7. cayQuyetDinhJson có 100 RULES.
+8. outputTpl có {kq}.
+9. Ký tự đầu = {, cuối = }.
 
 ═══════════════════════════════════════════════════
 BẮT ĐẦU TRẢ JSON NGAY
@@ -177,13 +204,11 @@ function buildUserMessage({ problem, context = '', relatedTIPs = [], webResults 
     parts.push(`\n👤 USER PROFILE:`);
     if (userProfile.preferredLang) parts.push(`- Ngôn ngữ ưa thích: ${userProfile.preferredLang}`);
     if (userProfile.techStack?.length) parts.push(`- Tech stack: ${userProfile.techStack.join(', ')}`);
-    if (userProfile.commonProjects?.length) parts.push(`- Loại dự án hay làm: ${userProfile.commonProjects.join(', ')}`);
     if (userProfile.preferredEditor) parts.push(`- Editor: ${userProfile.preferredEditor}`);
   }
 
   if (intentHistory?.length) {
-    const recent = intentHistory.slice(-10).join(' → ');
-    parts.push(`\n📊 LỊCH SỬ INTENT: ${recent}`);
+    parts.push(`\n📊 LỊCH SỬ INTENT: ${intentHistory.slice(-10).join(' → ')}`);
   }
 
   if (context) parts.push(`\n🧠 NGỮ CẢNH:\n${context}`);
@@ -198,20 +223,21 @@ function buildUserMessage({ problem, context = '', relatedTIPs = [], webResults 
 
   if (webResults) parts.push(`\n🌐 WEB:\n${webResults}`);
 
-  parts.push(`\n\n⚠️ QUY TẮC CỨNG:`);
-  parts.push(`- PHÉP TÍNH → logicType="expr"`);
-  parts.push(`- VIẾT CODE → logicType="code"`);
+  parts.push(`\n\n🚨🚨🚨 QUY TẮC QUAN TRỌNG NHẤT:`);
+  parts.push(`- TẤT CẢ logicValue PHẢI dùng BIẾN (a, b, c, d, e, f, g, h)`);
+  parts.push(`- KHÔNG được dùng số cứng (1, 2, 3, 4, 5)`);
+  parts.push(`- outputTpl cũng PHẢI dùng biến: {a}, {b}, {c}...`);
+  parts.push(`- VD ĐÚNG: "a + b + c"`);
+  parts.push(`- VD SAI: "1 + 2 + 3"`);
+  parts.push(``);
+  parts.push(`🎯 logicType:`);
+  parts.push(`- PHÉP TÍNH → "expr"`);
+  parts.push(`- VIẾT CODE → "code"`);
   parts.push(`- Có "spck"/"html"/"web" → HTML/CSS/JS`);
-  parts.push(`- CHỈ chọn Python khi user NÓI RÕ "python"`);
   parts.push(``);
-  parts.push(`🚨🚨🚨 CODE PHẢI CÓ \\n XUỐNG DÒNG:`.replace('\\n', '\\n'));
-  parts.push(`- Code KHÔNG được dồn 1 dòng`);
-  parts.push(`- Mỗi thẻ HTML / statement JS / dòng Python → xuống dòng`);
-  parts.push(`- Trong JSON dùng \\n để chỉ xuống dòng`);
-  parts.push(`- VD: "<!DOCTYPE html>\\n<html>\\n<head>\\n..."`);
-  parts.push(``);
+  parts.push(`🚨 Code PHẢI có \\n xuống dòng.`);
   parts.push(`🚨 patterns + keywords CÙNG CHỦ ĐỀ.`);
-  parts.push(`🚨 cayQuyetDinhJson có 100 RULES.`);
+  parts.push(`🚨 cayQuyetDinhJson có 100 RULES, KHÔNG số cứng.`);
   parts.push(`⚠️ CHỈ JSON.`);
   return parts.join('\n');
 }
