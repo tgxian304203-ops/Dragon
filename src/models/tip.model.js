@@ -1,5 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    📚 TIP — Kho 2 — 14 trường text + 4 trường máy + Feedback
+   - [MỚI] cayQuyetDinhJson — cây quyết định cấu trúc cho Tiểu não
    ═══════════════════════════════════════════════════════════════ */
 
 const mongoose = require('mongoose');
@@ -41,14 +42,20 @@ const tipSchema = new mongoose.Schema(
     // Test case
     tests: { type: Array, default: [] },
 
-    /* ═══ [MỚI] Feedback loop ═══ */
-    usageCount: { type: Number, default: 0, index: true },      // số lần TIP được chọn để trả lời
-    successCount: { type: Number, default: 0 },                 // số lần trả lời thành công
-    failCount: { type: Number, default: 0 },                    // số lần trả lời thất bại
+    /* ═══ [MỚI] Cây quyết định JSON — cho Tiểu não tư duy ═══ */
+    cayQuyetDinhJson: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+
+    /* ═══ Feedback loop ═══ */
+    usageCount: { type: Number, default: 0, index: true },
+    successCount: { type: Number, default: 0 },
+    failCount: { type: Number, default: 0 },
     lastUsedAt: { type: Date, default: null },
-    version: { type: Number, default: 1 },                      // tăng khi cập nhật nội dung
-    mergedFrom: { type: [mongoose.Schema.Types.ObjectId], default: [] }, // các TIP đã gộp vào
-    isDeprecated: { type: Boolean, default: false, index: true }, // TIP loãng/kém
+    version: { type: Number, default: 1 },
+    mergedFrom: { type: [mongoose.Schema.Types.ObjectId], default: [] },
+    isDeprecated: { type: Boolean, default: false, index: true },
     deprecatedReason: { type: String, default: '' },
   },
   { timestamps: true, collection: 'tips' }

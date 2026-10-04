@@ -1,13 +1,16 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 TIỂU NÃO — Match pattern → chạy logic (không model)
+   🧠 TIỂU NÃO — Match pattern → chạy logic → cây quyết định
    - Nhánh A: expr (mathjs)
    - Nhánh B: code (Judge0)
    - Nhánh C: patch (Judge0)
-   - Nhánh D: fallback (hiện 14 trường)
-   - Tích hợp feedback.recordUse/recordSuccess/recordFail
+   - Nhánh D: cây quyết định JSON (tư duy)
+   - Nhánh E: fallback 14 trường
    ═══════════════════════════════════════════════════════════════ */
 
-const { matchPattern, runLogic, formatOutput, detectLangFromCode } = require('./logicRunner');
+const {
+  matchPattern, runLogic, formatOutput, detectLangFromCode,
+  chayCayQuyetDinh,
+} = require('./logicRunner');
 const feedback = require('./brains/feedback');
 const logger = require('../utils/logger');
 
@@ -28,12 +31,10 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
     if (vars) {
       logger.info(`🎯 Match pattern — vars=${JSON.stringify(vars)}`);
 
-      // [MỚI] Ghi nhận TIP được dùng (bất đồng bộ)
       if (tipId) {
         feedback.recordUse(tipId).catch((err) => logger.warn('feedback.recordUse:', err.message));
       }
 
-      /* ═══ BƯỚC 2: Chạy logic ═══ */
       const result = await runLogic({
         logicType: tip.logicType,
         logicValue: tip.logicValue,
@@ -42,16 +43,13 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
 
       if (result.success) {
         const answer = formatOutput(tip.outputTpl, vars, result.kq);
-
         logger.success(`✅ Tiểu não tự tính: ${String(answer).slice(0, 80)}`);
 
-        // [MỚI] Ghi nhận thành công (bất đồng bộ)
         if (tipId) {
           feedback.recordSuccess(tipId, { source: 'tieuNao' })
             .catch((err) => logger.warn('feedback.recordSuccess:', err.message));
         }
 
-        // Nhánh B/C — trả đủ code + output + language
         if (result.isCode || result.isPatch) {
           return {
             answer,
@@ -59,41 +57,25 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
             code: result.kq,
             language: result.language || detectLangFromCode(result.kq),
             output: result.output || '',
-            meta: {
-              tipId,
-              matched: true,
-              vars,
-              logicType: tip.logicType,
-              ran: true,
-            },
+            meta: { tipId, matched: true, vars, logicType: tip.logicType, ran: true },
           };
         }
 
-        // Nhánh A — expr
         return {
           answer,
           type: 'no_code',
-          code: null,
-          language: null,
-          output: null,
-          meta: {
-            tipId,
-            matched: true,
-            vars,
-            logicType: tip.logicType,
-          },
+          code: null, language: null, output: null,
+          meta: { tipId, matched: true, vars, logicType: tip.logicType },
         };
       }
 
       logger.warn(`Match pattern nhưng chạy logic lỗi: ${result.error}`);
 
-      // [MỚI] Ghi nhận thất bại (bất đồng bộ)
       if (tipId) {
         feedback.recordFail(tipId, result.error || 'logic_failed')
           .catch((err) => logger.warn('feedback.recordFail:', err.message));
       }
 
-      // Nhánh B/C chạy lỗi — vẫn trả code cho user
       if (result.isCode || result.isPatch) {
         return {
           answer: `⚠️ Code chạy lỗi: ${result.error}`,
@@ -101,41 +83,68 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
           code: result.kq,
           language: result.language || detectLangFromCode(result.kq),
           output: result.output || '',
-          meta: {
-            tipId,
-            matched: true,
-            vars,
-            logicType: tip.logicType,
-            ran: false,
-            error: result.error,
-          },
+          meta: { tipId, matched: true, vars, logicType: tip.logicType, ran: false, error: result.error },
         };
       }
-
-      // Nhánh A lỗi — rơi xuống fallback
     } else {
-      logger.debug(`Không match pattern nào trong TIP`);
+      logger.debug(`Không match pattern nào`);
     }
   }
 
-  /* ═══ FALLBACK — Nhánh D ═══ */
-  // Không ghi feedback — vì đây không phải TIP "được chọn" để trả lời,
-  // mà là TIP bị dùng làm ngữ cảnh khi không match.
+  /* ═══ BƯỚC 2: [MỚI] Chạy cây quyết định JSON ═══ */
+  if (tip.cayQuyetDinhJson && Array.isArray(tip.cayQuyetDinhJson.rules) && tip.cayQuyetDinhJson.rules.length > 0) {
+    logger.info(`🌳 Thử chạy cây quyết định (${tip.cayQuyetDinhJson.rules.length} rules)`);
+
+    try {
+      const cayResult = await chayCayQuyetDinh({ tip, problem });
+
+      if (cayResult.success) {
+        logger.success(`✅ Cây quyết định xử lý được: ${String(cayResult.kq).slice(0, 80)}`);
+
+        if (tipId) {
+          feedback.recordUse(tipId).catch((err) => logger.warn('feedback.recordUse:', err.message));
+          feedback.recordSuccess(tipId, { source: 'cayQuyetDinh' })
+            .catch((err) => logger.warn('feedback.recordSuccess:', err.message));
+        }
+
+        // Nếu kết quả là code
+        if (cayResult.isCode || cayResult.isPatch || cayResult.language) {
+          return {
+            answer: cayResult.formatted || String(cayResult.kq),
+            type: cayResult.isPatch ? 'patch' : 'code',
+            code: cayResult.kq,
+            language: cayResult.language || detectLangFromCode(cayResult.kq),
+            output: cayResult.output || '',
+            meta: { tipId, matched: 'cayQuyetDinh', vars: cayResult.vars, ran: true },
+          };
+        }
+
+        // Kết quả là text/expr
+        return {
+          answer: cayResult.formatted || String(cayResult.kq),
+          type: 'no_code',
+          code: null, language: null, output: null,
+          meta: { tipId, matched: 'cayQuyetDinh', vars: cayResult.vars },
+        };
+      }
+
+      logger.debug(`Cây không xử lý được: ${cayResult.error}`);
+    } catch (err) {
+      logger.warn(`Chạy cây lỗi: ${err.message}`);
+    }
+  }
+
+  /* ═══ FALLBACK — Nhánh E ═══ */
   return {
     answer: formatTIPDayDu(tip),
     type: 'no_code',
-    code: null,
-    language: null,
-    output: null,
-    meta: {
-      tipId,
-      matched: false,
-    },
+    code: null, language: null, output: null,
+    meta: { tipId, matched: false },
   };
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   FORMAT 14 TRƯỜNG — Nhánh D
+   FORMAT 14 TRƯỜNG — Nhánh E
    ═══════════════════════════════════════════════════════════════ */
 
 function formatTIPDayDu(tip) {

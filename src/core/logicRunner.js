@@ -1,11 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════
-   🎯 LOGIC RUNNER — Match pattern LINH HOẠT + chạy logic (async)
-   - Normalize mạnh: viết thường, bỏ dấu câu, dedupe
-   - Bỏ stopwords toàn diện (đầu/giữa/cuối)
-   - Bảng sửa chính tả phổ biến
-   - Fuzzy match (Levenshtein) — chạy JS thuần
+   🎯 LOGIC RUNNER — Match pattern + chạy logic + cây quyết định
+   - Normalize mạnh, fuzzy match
    - Nhánh expr: mathjs | Nhánh code/patch: Judge0
-   - HTML/CSS: KHÔNG chạy Judge0 — chỉ hiển thị code
+   - HTML/CSS: KHÔNG chạy Judge0
+   - [MỚI] chayCayQuyetDinh — Tiểu não tư duy từ cây JSON
    ═══════════════════════════════════════════════════════════════ */
 
 const { evaluate } = require('mathjs');
@@ -13,7 +11,7 @@ const { testCode } = require('./judge0Test');
 const logger = require('../utils/logger');
 
 /* ═══════════════════════════════════════════════════════════════
-   STOPWORDS — bỏ khi match (mọi vị trí)
+   STOPWORDS + SPELL FIX (giữ nguyên)
    ═══════════════════════════════════════════════════════════════ */
 
 const STOPWORDS = new Set([
@@ -26,120 +24,60 @@ const STOPWORDS = new Set([
   '?', '!', '.', ',', ';', ':',
 ]);
 
-/* ═══════════════════════════════════════════════════════════════
-   BẢNG SỬA CHÍNH TẢ — hardcode, không gọi model
-   ═══════════════════════════════════════════════════════════════ */
-
 const SPELL_FIX = {
-  'nhan': 'nhân',
-  'nhân': 'nhân',
-  'cong': 'cộng',
-  'công': 'cộng',
-  'tru': 'trừ',
-  'trừ': 'trừ',
-  'chia': 'chia',
-  'chi': 'chia',
-  'mu': 'mũ',
-  'luy thua': 'lũy thừa',
-  'luyThua': 'lũy thừa',
-  'tong': 'tổng',
-  'hieu': 'hiệu',
-  'tich': 'tích',
-  'thuong': 'thương',
-  'tinh': 'tính',
-  'giup': 'giúp',
-  'gium': 'giùm',
-  'ho': 'hộ',
-  'dum': 'dùm',
-  'bao nhieu': 'bao nhiêu',
-  'bang may': 'bằng mấy',
-  'ket qua': 'kết quả',
-  'viet': 'viết',
-  'tao': 'tạo',
-  'ham': 'hàm',
-  'code': 'code',
-  'lap trinh': 'lập trình',
-  'chuong trinh': 'chương trình',
-  'sua': 'sửa',
-  'loi': 'lỗi',
-  'debug': 'debug',
-  'khong': 'không',
-  'mot': 'một',
-  'hai': 'hai',
-  'ba': 'ba',
-  'bon': 'bốn',
-  'nam': 'năm',
-  'sau': 'sáu',
-  'bay': 'bảy',
-  'tam': 'tám',
-  'chin': 'chín',
-  'muoi': 'mười',
-  'phay': 'phẩy',
-  'cham': 'chấm',
+  'nhan': 'nhân', 'nhân': 'nhân', 'cong': 'cộng', 'công': 'cộng',
+  'tru': 'trừ', 'trừ': 'trừ', 'chia': 'chia', 'chi': 'chia',
+  'mu': 'mũ', 'luy thua': 'lũy thừa', 'tong': 'tổng', 'hieu': 'hiệu',
+  'tich': 'tích', 'thuong': 'thương', 'tinh': 'tính', 'giup': 'giúp',
+  'gium': 'giùm', 'ho': 'hộ', 'dum': 'dùm', 'bao nhieu': 'bao nhiêu',
+  'viet': 'viết', 'tao': 'tạo', 'ham': 'hàm', 'lap trinh': 'lập trình',
+  'sua': 'sửa', 'loi': 'lỗi', 'khong': 'không', 'mot': 'một',
+  'hai': 'hai', 'ba': 'ba', 'bon': 'bốn', 'nam': 'năm',
+  'sau': 'sáu', 'bay': 'bảy', 'tam': 'tám', 'chin': 'chín',
+  'muoi': 'mười', 'phay': 'phẩy', 'cham': 'chấm',
 };
-
-/* ═══════════════════════════════════════════════════════════════
-   NORMALIZE — chuẩn hóa câu hỏi
-   ═══════════════════════════════════════════════════════════════ */
 
 function removeDiacritics(str) {
   if (!str) return '';
-  return String(str)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D');
+  return String(str).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd').replace(/Đ/g, 'D');
 }
 
 function fixSpelling(text) {
   if (!text) return '';
   let s = String(text).toLowerCase();
-
   const keys = Object.keys(SPELL_FIX).sort((a, b) => b.length - a.length);
-
   for (const wrong of keys) {
     const correct = SPELL_FIX[wrong];
     const re = new RegExp(`(^|\\s)${wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`, 'giu');
     s = s.replace(re, `$1${correct}$2`);
   }
-
   return s;
 }
 
 function normalizeQuery(query) {
   if (!query || typeof query !== 'string') return '';
-
-  let s = query.trim();
-  s = s.toLowerCase();
+  let s = query.trim().toLowerCase();
   s = fixSpelling(s);
   s = s.replace(/(\d)\s*([+\-*/^=])\s*(\d)/g, '$1 $2 $3');
   s = s.replace(/(\d),(\d)/g, '$1.$2');
   s = s.replace(/[^\p{L}\p{N}\s+\-*/^=().]/gu, ' ');
-
   const words = s.split(/\s+/).filter((w) => w.length > 0);
   const filtered = words.filter((w) => !STOPWORDS.has(w.toLowerCase()));
   s = filtered.join(' ');
-
-  s = s.replace(/\s+/g, ' ').trim();
-  return s;
+  return s.replace(/\s+/g, ' ').trim();
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   FUZZY MATCH — Levenshtein distance
+   FUZZY MATCH
    ═══════════════════════════════════════════════════════════════ */
 
 function levenshtein(a, b) {
   if (!a) return b ? b.length : 0;
   if (!b) return a.length;
-
-  const m = a.length;
-  const n = b.length;
-
-  let prev = new Array(n + 1);
-  let curr = new Array(n + 1);
-
+  const m = a.length; const n = b.length;
+  let prev = new Array(n + 1); let curr = new Array(n + 1);
   for (let j = 0; j <= n; j++) prev[j] = j;
-
   for (let i = 1; i <= m; i++) {
     curr[0] = i;
     for (let j = 1; j <= n; j++) {
@@ -148,7 +86,6 @@ function levenshtein(a, b) {
     }
     [prev, curr] = [curr, prev];
   }
-
   return prev[n];
 }
 
@@ -162,65 +99,42 @@ function similarity(a, b) {
 function fuzzyEqual(a, b, threshold = 0.75) {
   if (!a || !b) return false;
   if (a === b) return true;
-
   const aNoDiacritic = removeDiacritics(a);
   const bNoDiacritic = removeDiacritics(b);
   if (aNoDiacritic === bNoDiacritic) return true;
-
-  const sim = similarity(aNoDiacritic, bNoDiacritic);
-  return sim >= threshold;
+  return similarity(aNoDiacritic, bNoDiacritic) >= threshold;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PATTERN → REGEX
+   PATTERN → REGEX + MATCH
    ═══════════════════════════════════════════════════════════════ */
 
 function patternToRegex(pattern) {
-  let s = String(pattern);
-  s = s.replace(/\s+/g, ' ').trim();
-
-  s = s.replace(/\{a\}/g, '\u0001NUM\u0001');
-  s = s.replace(/\{b\}/g, '\u0001NUM\u0001');
-  s = s.replace(/\{c\}/g, '\u0001NUM\u0001');
-  s = s.replace(/\{d\}/g, '\u0001NUM\u0001');
-  s = s.replace(/\{n\}/g, '\u0001NUM\u0001');
-  s = s.replace(/\{name\}/g, '\u0001STR\u0001');
-  s = s.replace(/\{code\}/g, '\u0001CODE\u0001');
-  s = s.replace(/\{error\}/g, '\u0001CODE\u0001');
-  s = s.replace(/\{text\}/g, '\u0001CODE\u0001');
-
-  s = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  s = s.replace(/ /g, '\\s*');
-
+  let s = String(pattern).replace(/\s+/g, ' ').trim();
+  s = s.replace(/\{a\}/g, '\u0001NUM\u0001').replace(/\{b\}/g, '\u0001NUM\u0001')
+    .replace(/\{c\}/g, '\u0001NUM\u0001').replace(/\{d\}/g, '\u0001NUM\u0001')
+    .replace(/\{n\}/g, '\u0001NUM\u0001')
+    .replace(/\{name\}/g, '\u0001STR\u0001')
+    .replace(/\{code\}/g, '\u0001CODE\u0001').replace(/\{error\}/g, '\u0001CODE\u0001')
+    .replace(/\{text\}/g, '\u0001CODE\u0001');
+  s = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s*');
   s = s.replace(/\u0001NUM\u0001/g, '(-?\\d+(?:[.,]\\d+)?)');
   s = s.replace(/\u0001STR\u0001/g, '([\\w\\u00C0-\\u1EF9]+)');
   s = s.replace(/\u0001CODE\u0001/g, '(.+?)');
-
   return new RegExp('^\\s*' + s + '\\s*$', 'iu');
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   MATCH PATTERN — regex exact + fuzzy fallback
-   ═══════════════════════════════════════════════════════════════ */
 
 function tryRegexMatch(pattern, query) {
   try {
     const re = patternToRegex(pattern);
     const m = query.match(re);
     if (!m) return null;
-
     const placeholders = [];
     const re2 = /\{(\w+)\}/g;
     let match2;
-    while ((match2 = re2.exec(pattern)) !== null) {
-      placeholders.push(match2[1]);
-    }
-
+    while ((match2 = re2.exec(pattern)) !== null) placeholders.push(match2[1]);
     const vars = {};
-    placeholders.forEach((name, i) => {
-      vars[name] = m[i + 1];
-    });
-
+    placeholders.forEach((name, i) => { vars[name] = m[i + 1]; });
     return vars;
   } catch (err) {
     logger.warn(`Pattern regex lỗi "${pattern}": ${err.message}`);
@@ -234,73 +148,42 @@ function tryFuzzyMatch(pattern, query) {
     .replace(/\{name\}/g, 'STR')
     .replace(/\{code\}|\{error\}|\{text\}/g, 'CODE')
     .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    .toLowerCase()
-    .trim();
-
+    .toLowerCase().trim();
   const cleanQuery = query.toLowerCase().trim();
-
-  const patternTemplate = cleanPattern
-    .replace(/NUM/g, '')
-    .replace(/STR/g, '')
-    .replace(/CODE/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
+  const patternTemplate = cleanPattern.replace(/NUM/g, '').replace(/STR/g, '').replace(/CODE/g, '').replace(/\s+/g, ' ').trim();
   const queryClean = cleanQuery.replace(/\s+/g, ' ').trim();
-
   const patternWords = patternTemplate.split(/\s+/).filter((w) => w);
   const queryWords = queryClean.split(/\s+/).filter((w) => w);
-
   if (patternWords.length === 0) return null;
-
   let matched = 0;
   for (const pw of patternWords) {
     for (const qw of queryWords) {
-      if (fuzzyEqual(pw, qw, 0.75)) {
-        matched++;
-        break;
-      }
+      if (fuzzyEqual(pw, qw, 0.75)) { matched++; break; }
     }
   }
-
   const ratio = matched / patternWords.length;
-  if (ratio >= 0.75) {
-    return { _fuzzy: true, _ratio: ratio };
-  }
-
+  if (ratio >= 0.75) return { _fuzzy: true, _ratio: ratio };
   return null;
 }
 
 function matchPattern(patterns, query) {
   if (!Array.isArray(patterns) || patterns.length === 0) return null;
   if (!query || typeof query !== 'string') return null;
-
   const q = normalizeQuery(query);
-  logger.debug(`normalizeQuery: "${query}" → "${q}"`);
-
   if (!q) return null;
-
   for (const p of patterns) {
     const vars = tryRegexMatch(p, q);
-    if (vars) {
-      logger.debug(`✅ Regex match: "${p}" → vars=${JSON.stringify(vars)}`);
-      return vars;
-    }
+    if (vars) return vars;
   }
-
   for (const p of patterns) {
     const fuzzy = tryFuzzyMatch(p, q);
-    if (fuzzy) {
-      logger.debug(`🔍 Fuzzy match: "${p}" (ratio=${fuzzy._ratio.toFixed(2)})`);
-      return { _fuzzy: true, _pattern: p, _ratio: fuzzy._ratio };
-    }
+    if (fuzzy) return { _fuzzy: true, _pattern: p, _ratio: fuzzy._ratio };
   }
-
   return null;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   CHUẨN HÓA SỐ + DETECT LANG
+   PARSE NUM + DETECT LANG
    ═══════════════════════════════════════════════════════════════ */
 
 function parseNum(v) {
@@ -310,47 +193,328 @@ function parseNum(v) {
   return Number.isNaN(n) ? v : n;
 }
 
-/**
- * Detect ngôn ngữ từ code.
- * [SỬA] Thêm HTML/CSS — 2 ngôn ngữ này KHÔNG chạy Judge0.
- */
 function detectLangFromCode(code) {
   if (!code) return 'python';
   const c = String(code);
-
-  // HTML — kiểm tra trước tiên (vì HTML có thể chứa <script> JS bên trong)
   if (/<!DOCTYPE\s+html/i.test(c)) return 'html';
   if (/<html[\s>]/i.test(c)) return 'html';
   if (/<body[\s>]/i.test(c)) return 'html';
   if (/<div[\s>]|<span[\s>]|<p[\s>]|<h[1-6][\s>]/i.test(c)) return 'html';
-
-  // CSS
-  if (/^\s*[.#]?[\w-]+\s*\{[^}]*:\s*[^;]+;/m.test(c) && !/\bfunction\b|\bdef\b|\bconst\b|\blet\b/m.test(c)) {
-    return 'css';
-  }
-
-  // Các ngôn ngữ lập trình
+  if (/^\s*[.#]?[\w-]+\s*\{[^}]*:\s*[^;]+;/m.test(c) && !/\bfunction\b|\bdef\b|\bconst\b|\blet\b/m.test(c)) return 'css';
   if (/^\s*def\s+\w+\s*\(|print\s*\(/m.test(c)) return 'python';
   if (/^\s*function\s+\w+\s*\(|console\.log/m.test(c)) return 'javascript';
   if (/^\s*public\s+class|System\.out\.println/m.test(c)) return 'java';
   if (/^\s*#include|int\s+main\s*\(/m.test(c)) return 'cpp';
   if (/^\s*package\s+main|fmt\.Print/m.test(c)) return 'go';
   if (/^\s*fn\s+main|println!/m.test(c)) return 'rust';
-
   return 'python';
 }
 
-/**
- * [MỚI] Kiểm tra ngôn ngữ có chạy được trên Judge0 không.
- * HTML/CSS/JSX/TSX → KHÔNG chạy (chỉ hiển thị).
- */
 function isRunnableLang(lang) {
   const l = String(lang || '').toLowerCase();
   return ['python', 'javascript', 'java', 'cpp', 'go', 'rust', 'c', 'typescript', 'php', 'ruby'].includes(l);
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   RUN LOGIC — async
+   [MỚI] EXTRACT BIẾN TỪ CÂU HỎI THEO CATEGORY
+   ═══════════════════════════════════════════════════════════════ */
+
+function extractNumbers(problem) {
+  const s = String(problem).replace(/(\d),(\d)/g, '$1.$2');
+  const re = /-?\d+(?:\.\d+)?/g;
+  const matches = s.match(re) || [];
+  return matches.map((m) => Number(m)).filter((n) => !Number.isNaN(n));
+}
+
+function extractVarsMath(problem) {
+  const nums = extractNumbers(problem);
+  const vars = {
+    soLuongSo: nums.length,
+    coSoAm: nums.some((n) => n < 0),
+    coSoThapPhan: nums.some((n) => !Number.isInteger(n)),
+    coSo0: nums.some((n) => n === 0),
+    tuKhoa: '',
+  };
+
+  const letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  nums.slice(0, 8).forEach((n, i) => { vars[letters[i]] = n; });
+
+  const q = String(problem).toLowerCase();
+  if (/tổng|sum|tong/.test(q)) vars.tuKhoa = 'tổng';
+  else if (/cộng|\+|cong|add|plus/.test(q)) vars.tuKhoa = 'cộng';
+  else if (/trừ|hiệu|\-|tru|minus|subtract/.test(q)) vars.tuKhoa = 'trừ';
+  else if (/nhân|tích|\*|×|nhan|multiply/.test(q)) vars.tuKhoa = 'nhân';
+  else if (/chia|thương|\/|divide/.test(q)) vars.tuKhoa = 'chia';
+
+  return vars;
+}
+
+function extractVarsCode(problem) {
+  const q = String(problem).toLowerCase();
+  const vars = {
+    ngonNgu: '',
+    loai: '',
+    tenHam: '',
+    thamSo: '',
+    mucDich: '',
+  };
+
+  if (/python|py\b/.test(q)) vars.ngonNgu = 'python';
+  else if (/javascript|js\b|node/.test(q)) vars.ngonNgu = 'javascript';
+  else if (/html|web|shop|trang/.test(q)) vars.ngonNgu = 'html';
+  else if (/java\b/.test(q)) vars.ngonNgu = 'java';
+  else if (/c\+\+/.test(q)) vars.ngonNgu = 'cpp';
+  else if (/go\b|golang/.test(q)) vars.ngonNgu = 'go';
+  else if (/rust/.test(q)) vars.ngonNgu = 'rust';
+
+  if (/hàm|function/.test(q)) vars.loai = 'hàm';
+  else if (/class|lớp/.test(q)) vars.loai = 'class';
+  else if (/script/.test(q)) vars.loai = 'script';
+  else if (/web|shop|trang/.test(q)) vars.loai = 'web';
+  else if (/ui|giao diện/.test(q)) vars.loai = 'UI';
+
+  return vars;
+}
+
+function extractVarsBugfix(problem) {
+  const q = String(problem).toLowerCase();
+  const vars = { loaiLoi: '', ngonNgu: '', dongLoi: 0, noiDungLoi: '' };
+
+  if (/undefined|không xác định|chưa khai báo/.test(q)) vars.loaiLoi = 'undefined';
+  else if (/syntax|cú pháp/.test(q)) vars.loaiLoi = 'syntax';
+  else if (/logic|sai logic/.test(q)) vars.loaiLoi = 'logic';
+  else if (/runtime|thời gian chạy/.test(q)) vars.loaiLoi = 'runtime';
+
+  if (/python|py\b/.test(q)) vars.ngonNgu = 'python';
+  else if (/javascript|js\b/.test(q)) vars.ngonNgu = 'javascript';
+  else if (/html/.test(q)) vars.ngonNgu = 'html';
+
+  const m = q.match(/dòng\s*(\d+)/);
+  if (m) vars.dongLoi = Number(m[1]);
+
+  vars.noiDungLoi = problem.slice(0, 200);
+
+  return vars;
+}
+
+function extractVarsExplain(problem) {
+  const q = String(problem).toLowerCase();
+  const vars = { loaiVan: '', doDai: '', chuDe: '', giongVan: '' };
+
+  if (/kể chuyện|kể lại/.test(q)) vars.loaiVan = 'kể';
+  else if (/miêu tả|tả/.test(q)) vars.loaiVan = 'miêu tả';
+  else if (/phân tích/.test(q)) vars.loaiVan = 'phân tích';
+  else if (/nghị luận|chứng minh/.test(q)) vars.loaiVan = 'nghị luận';
+
+  if (/ngắn/.test(q)) vars.doDai = 'ngắn';
+  else if (/dài/.test(q)) vars.doDai = 'dài';
+  else vars.doDai = 'vừa';
+
+  if (/trang trọng/.test(q)) vars.giongVan = 'trang trọng';
+  else vars.giongVan = 'thân mật';
+
+  vars.chuDe = problem.slice(0, 100);
+
+  return vars;
+}
+
+function extractVarsTheoCategory(problem, category) {
+  switch (category) {
+    case 'math': return extractVarsMath(problem);
+    case 'code': return extractVarsCode(problem);
+    case 'bugfix': return extractVarsBugfix(problem);
+    case 'explain': return extractVarsExplain(problem);
+    default: return {};
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   [MỚI] EVAL ĐIỀU KIỆN — WHITELIST AN TOÀN
+   ═══════════════════════════════════════════════════════════════ */
+
+/**
+ * Đánh giá điều kiện "if" của rule với vars.
+ * Chỉ cho phép phép toán so sánh + logic + số học đơn giản.
+ * KHÔNG cho phép gọi hàm, truy cập object, hay từ khóa nguy hiểm.
+ */
+function evalCondition(condition, vars) {
+  if (typeof condition !== 'string' || condition.trim() === '') return false;
+
+  // Blacklist từ khóa nguy hiểm
+  const dangerous = /\b(require|import|eval|Function|process|global|window|document|fs|child_process|__proto__|constructor|prototype)\b/i;
+  if (dangerous.test(condition)) {
+    logger.warn(`evalCondition: từ khóa nguy hiểm — "${condition}"`);
+    return false;
+  }
+
+  // Thay biến chuẩn bằng giá trị
+  let expr = condition;
+  const keys = Object.keys(vars).sort((a, b) => b.length - a.length);
+  for (const k of keys) {
+    const re = new RegExp(`\\b${k}\\b`, 'g');
+    const val = vars[k];
+    let valStr;
+    if (typeof val === 'string') valStr = JSON.stringify(val);
+    else if (typeof val === 'boolean') valStr = String(val);
+    else if (typeof val === 'number') valStr = String(val);
+    else valStr = 'null';
+    expr = expr.replace(re, valStr);
+  }
+
+  // Whitelist ký tự an toàn
+  const safeChars = /^[\s\d+\-*/%().<>=!&|'"a-zA-Z_,]+$/;
+  if (!safeChars.test(expr)) {
+    logger.warn(`evalCondition: ký tự không an toàn — "${expr}"`);
+    return false;
+  }
+
+  // Blacklist chuỗi nguy hiểm sau thay biến
+  if (/\b(eval|Function|require|import|process|global|window|document|fs|child_process|__proto__|constructor|prototype)\b/i.test(expr)) {
+    logger.warn(`evalCondition: sau thay biến có từ nguy hiểm — "${expr}"`);
+    return false;
+  }
+
+  try {
+    // eslint-disable-next-line no-new-func
+    const result = Function(`"use strict"; return (${expr});`)();
+    return result === true;
+  } catch (err) {
+    logger.debug(`evalCondition lỗi "${condition}" → "${expr}": ${err.message}`);
+    return false;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   [MỚI] CHẠY CÂY QUYẾT ĐỊNH — Tiểu não tư duy
+   ═══════════════════════════════════════════════════════════════ */
+
+async function chayCayQuyetDinh({ tip, problem }) {
+  if (!tip || !tip.cayQuyetDinhJson) {
+    return { success: false, error: 'TIP không có cây quyết định' };
+  }
+
+  const cay = tip.cayQuyetDinhJson;
+  const category = cay.category || tip.category || 'general';
+
+  // Extract biến theo category
+  const vars = extractVarsTheoCategory(problem, category);
+  logger.debug(`🌳 Cây quyết định [${category}] — vars: ${JSON.stringify(vars).slice(0, 200)}`);
+
+  if (!Array.isArray(cay.rules) || cay.rules.length === 0) {
+    return { success: false, error: 'Cây không có rules' };
+  }
+
+  // Loop rules → rule nào match đầu tiên thì chạy
+  for (const rule of cay.rules) {
+    try {
+      const matched = evalCondition(rule.if, vars);
+      if (!matched) continue;
+
+      logger.info(`🎯 Cây match rule: "${rule.if}"`);
+
+      const then = rule.then || {};
+      const logicType = String(then.logicType || '').toLowerCase();
+      const logicValue = then.logicValue || '';
+      const outputTpl = then.outputTpl || '';
+
+      // Chạy logic
+      const result = await chayLogicVoiVars({
+        logicType, logicValue, outputTpl, vars, problem,
+      });
+
+      if (result.success) return result;
+      logger.warn(`Rule match nhưng chạy logic lỗi: ${result.error}`);
+    } catch (err) {
+      logger.warn(`Rule lỗi "${rule.if}": ${err.message}`);
+    }
+  }
+
+  // Fallback
+  logger.debug(`Không rule nào match — thử fallback cây`);
+  return { success: false, error: 'Không rule nào match', vars };
+}
+
+/**
+ * Chạy logic với vars (dùng chung cho rule match).
+ */
+async function chayLogicVoiVars({ logicType, logicValue, outputTpl, vars, problem }) {
+  if (!logicType) {
+    // Text thuần — format output
+    if (outputTpl) {
+      const formatted = formatOutputTpl(outputTpl, vars, '');
+      return { success: true, kq: formatted, output: '', isText: true };
+    }
+    return { success: false, error: 'Không có logicType và outputTpl' };
+  }
+
+  if (logicType === 'expr') {
+    if (!logicValue) return { success: false, error: 'Thiếu logicValue' };
+    try {
+      const scope = {};
+      for (const [k, v] of Object.entries(vars)) {
+        if (typeof v === 'number') scope[k] = v;
+      }
+      const kq = evaluate(logicValue, scope);
+      const formatted = formatOutputTpl(outputTpl || '{kq}', vars, kq);
+      return { success: true, kq: formatted, output: '', kqRaw: kq, isExpr: true };
+    } catch (err) {
+      return { success: false, error: `mathjs: ${err.message}` };
+    }
+  }
+
+  if (logicType === 'code' || logicType === 'patch') {
+    if (!logicValue) return { success: false, error: 'Thiếu logicValue' };
+
+    let code = logicValue;
+    for (const [k, v] of Object.entries(vars)) {
+      code = code.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+    }
+
+    const language = detectLangFromCode(code);
+
+    if (!isRunnableLang(language)) {
+      return {
+        success: true, kq: code, output: '', language,
+        isCode: logicType === 'code', isPatch: logicType === 'patch',
+        skippedRun: true, formatted: formatOutputTpl(outputTpl || '{kq}', vars, code),
+      };
+    }
+
+    const result = await testCode({ code, language });
+    if (result.success) {
+      return {
+        success: true, kq: code, output: result.stdout || '', language,
+        isCode: logicType === 'code', isPatch: logicType === 'patch',
+        formatted: formatOutputTpl(outputTpl || '{kq}', vars, code),
+      };
+    }
+    return {
+      success: false, kq: code, output: result.stdout || '', language,
+      error: result.error,
+      isCode: logicType === 'code', isPatch: logicType === 'patch',
+    };
+  }
+
+  return { success: false, error: `logicType không hỗ trợ: ${logicType}` };
+}
+
+function formatOutputTpl(tpl, vars, kq) {
+  let out = String(tpl);
+  for (const [k, v] of Object.entries(vars || {})) {
+    out = out.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+  }
+  let kqStr;
+  if (typeof kq === 'number' && Number.isFinite(kq)) {
+    kqStr = Number.isInteger(kq) ? String(kq) : String(kq).replace('.', ',');
+  } else {
+    kqStr = String(kq);
+  }
+  out = out.replace(/\{kq\}/g, kqStr);
+  return out;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RUN LOGIC — Nhánh A/B/C cũ (giữ nguyên)
    ═══════════════════════════════════════════════════════════════ */
 
 async function runLogic({ logicType, logicValue, vars }) {
@@ -358,13 +522,9 @@ async function runLogic({ logicType, logicValue, vars }) {
 
   if (logicType === 'expr') {
     if (!logicValue) return { success: false, error: 'Thiếu logicValue' };
-
     try {
       const scope = {};
-      for (const [k, v] of Object.entries(vars || {})) {
-        scope[k] = parseNum(v);
-      }
-
+      for (const [k, v] of Object.entries(vars || {})) scope[k] = parseNum(v);
       const kq = evaluate(logicValue, scope);
       return { success: true, kq };
     } catch (err) {
@@ -373,120 +533,44 @@ async function runLogic({ logicType, logicValue, vars }) {
     }
   }
 
-  if (logicType === 'code') {
+  if (logicType === 'code' || logicType === 'patch') {
     if (!logicValue) return { success: false, error: 'Thiếu logicValue' };
-
     let code = logicValue;
     for (const [k, v] of Object.entries(vars || {})) {
       code = code.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
     }
-
     const language = detectLangFromCode(code);
+    const isPatch = logicType === 'patch';
 
-    // [MỚI] HTML/CSS → KHÔNG chạy Judge0, chỉ hiển thị code
     if (!isRunnableLang(language)) {
       logger.info(`📄 Code ${language} — chỉ hiển thị, không chạy Judge0`);
-      return {
-        success: true,
-        kq: code,
-        output: '',
-        language,
-        isCode: true,
-        skippedRun: true,
-      };
+      return { success: true, kq: code, output: '', language, isCode: !isPatch, isPatch, skippedRun: true };
     }
 
-    logger.info(`🧪 Nhánh code — chạy qua Judge0 (${language})`);
+    logger.info(`🧪 Nhánh ${logicType} — chạy qua Judge0 (${language})`);
     const result = await testCode({ code, language });
-
     if (result.success) {
-      return { success: true, kq: code, output: result.stdout, language, isCode: true };
+      return { success: true, kq: code, output: result.stdout, language, isCode: !isPatch, isPatch };
     }
-
     logger.warn(`Judge0 chạy code lỗi: ${result.error}`);
-    return { success: false, kq: code, output: result.stdout, language, isCode: true, error: result.error };
-  }
-
-  if (logicType === 'patch') {
-    if (!logicValue) return { success: false, error: 'Thiếu logicValue' };
-
-    let patch = logicValue;
-    for (const [k, v] of Object.entries(vars || {})) {
-      patch = patch.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
-    }
-
-    const language = detectLangFromCode(patch);
-
-    // [MỚI] HTML/CSS → KHÔNG chạy Judge0, chỉ hiển thị code
-    if (!isRunnableLang(language)) {
-      logger.info(`📄 Patch ${language} — chỉ hiển thị, không chạy Judge0`);
-      return {
-        success: true,
-        kq: patch,
-        output: '',
-        language,
-        isPatch: true,
-        skippedRun: true,
-      };
-    }
-
-    logger.info(`🧪 Nhánh patch — chạy qua Judge0 (${language})`);
-    const result = await testCode({ code: patch, language });
-
-    if (result.success) {
-      return { success: true, kq: patch, output: result.stdout, language, isPatch: true };
-    }
-
-    logger.warn(`Judge0 chạy patch lỗi: ${result.error}`);
-    return { success: false, kq: patch, output: result.stdout, language, isPatch: true, error: result.error };
+    return { success: false, kq: code, output: result.stdout, language, isCode: !isPatch, isPatch, error: result.error };
   }
 
   return { success: false, error: `logicType không hỗ trợ: ${logicType}` };
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   FORMAT OUTPUT
-   ═══════════════════════════════════════════════════════════════ */
-
 function formatOutput(tpl, vars, kq) {
-  if (!tpl) return String(kq);
-
-  let out = String(tpl);
-
-  for (const [k, v] of Object.entries(vars || {})) {
-    out = out.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
-  }
-
-  let kqStr;
-  if (typeof kq === 'number' && Number.isFinite(kq)) {
-    if (Number.isInteger(kq)) {
-      kqStr = String(kq);
-    } else {
-      kqStr = String(kq).replace('.', ',');
-    }
-  } else {
-    kqStr = String(kq);
-  }
-
-  out = out.replace(/\{kq\}/g, kqStr);
-
-  return out;
+  return formatOutputTpl(tpl, vars, kq);
 }
 
 module.exports = {
-  patternToRegex,
-  matchPattern,
-  runLogic,
-  formatOutput,
-  normalizeQuery,
-  detectLangFromCode,
-  isRunnableLang,
-  parseNum,
-  levenshtein,
-  similarity,
-  fuzzyEqual,
-  removeDiacritics,
-  fixSpelling,
-  STOPWORDS,
-  SPELL_FIX,
+  patternToRegex, matchPattern, runLogic, formatOutput,
+  normalizeQuery, detectLangFromCode, isRunnableLang, parseNum,
+  levenshtein, similarity, fuzzyEqual, removeDiacritics, fixSpelling,
+  STOPWORDS, SPELL_FIX,
+  // [MỚI]
+  chayCayQuyetDinh, chayLogicVoiVars, evalCondition,
+  extractVarsTheoCategory, extractVarsMath, extractVarsCode,
+  extractVarsBugfix, extractVarsExplain, extractNumbers,
+  formatOutputTpl,
 };

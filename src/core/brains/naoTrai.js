@@ -1,9 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 NÃO TRÁI — Tạo TIP 14 trường + 4 trường máy
+   🧠 NÃO TRÁI — Tạo TIP 14 trường + 4 trường máy + cayQuyetDinhJson
    - JSON mode + retry blacklist model
    - Sanitize JSON mạnh — bắt mọi dạng output model
-   - [MỚI] Unescape \\n → xuống dòng thật
-   - [MỚI] Ghi feedback.recordHardProblem khi fail 3 lần
+   - Unescape \n → xuống dòng thật
+   - [MỚI] Normalize + validate cayQuyetDinhJson
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
@@ -22,21 +22,22 @@ const VALID_CATEGORIES = ['math', 'code', 'bugfix', 'explain', 'general'];
 const VALID_LOGIC_TYPES = ['expr', 'code', 'patch', ''];
 
 const MAX_JSON_RETRY = 3;
+const MAX_RULES = 200;
 
 /* ═══════════════════════════════════════════════════════════════
-   [MỚI] UNESCAPE — chuyển \n (literal) thành xuống dòng thật
+   UNESCAPE \n → xuống dòng thật
    ═══════════════════════════════════════════════════════════════ */
 
 function unescapeNewlines(str) {
   if (typeof str !== 'string') return '';
   return str
-    .replace(/\\r\\n/g, '\n')   // \r\n → \n
-    .replace(/\\n/g, '\n')       // \n → xuống dòng
-    .replace(/\\r/g, '\r')       // \r → \r
-    .replace(/\\t/g, '\t')       // \t → tab
-    .replace(/\\"/g, '"')        // \" → "
-    .replace(/\\'/g, "'")        // \' → '
-    .replace(/\\\\/g, '\\');     // \\ → \
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\"/g, '"')
+    .replace(/\\'/g, "'")
+    .replace(/\\\\/g, '\\');
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -98,7 +99,54 @@ function parseJSONFromModel(raw) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   NORMALIZE TIP — [SỬA] unescape \n cho mọi trường string
+   [MỚI] NORMALIZE cayQuyetDinhJson
+   ═══════════════════════════════════════════════════════════════ */
+
+function normalizeCayQuyetDinhJson(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+
+  const category = String(raw.category || 'general').toLowerCase().trim();
+  const validCat = VALID_CATEGORIES.includes(category) ? category : 'general';
+
+  let rules = [];
+  if (Array.isArray(raw.rules)) {
+    rules = raw.rules
+      .filter((r) => r && typeof r === 'object' && typeof r.if === 'string' && r.then && typeof r.then === 'object')
+      .map((r) => {
+        const then = r.then || {};
+        const lt = String(then.logicType || '').toLowerCase().trim();
+        return {
+          if: unescapeNewlines(String(r.if).trim()),
+          then: {
+            logicType: VALID_LOGIC_TYPES.includes(lt) ? lt : '',
+            logicValue: unescapeNewlines(typeof then.logicValue === 'string' ? then.logicValue : ''),
+            outputTpl: unescapeNewlines(typeof then.outputTpl === 'string' ? then.outputTpl : ''),
+          },
+        };
+      })
+      .slice(0, MAX_RULES);
+  }
+
+  let fallback = {
+    logicType: '',
+    logicValue: '',
+    outputTpl: 'Không xử lý được — cần sinh TIP mới',
+  };
+  if (raw.fallback && typeof raw.fallback === 'object') {
+    fallback = {
+      logicType: String(raw.fallback.logicType || ''),
+      logicValue: unescapeNewlines(typeof raw.fallback.logicValue === 'string' ? raw.fallback.logicValue : ''),
+      outputTpl: unescapeNewlines(typeof raw.fallback.outputTpl === 'string' ? raw.fallback.outputTpl : 'Không xử lý được'),
+    };
+  }
+
+  if (rules.length === 0) return null;
+
+  return { category: validCat, rules, fallback };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   NORMALIZE TIP
    ═══════════════════════════════════════════════════════════════ */
 
 function normalizeTIP(raw) {
@@ -145,12 +193,10 @@ function normalizeTIP(raw) {
   if (!VALID_LOGIC_TYPES.includes(logicType)) logicType = '';
   tip.logicType = logicType;
 
-  // [SỬA] Unescape logicValue — code HTML/Python thường có \n
   tip.logicValue = unescapeNewlines(
     typeof raw.logicValue === 'string' ? raw.logicValue.trim() : ''
   );
 
-  // [SỬA] Unescape outputTpl
   tip.outputTpl = unescapeNewlines(
     typeof raw.outputTpl === 'string' ? raw.outputTpl.trim() : ''
   );
@@ -160,6 +206,9 @@ function normalizeTIP(raw) {
         .filter((t) => t && typeof t === 'object' && t.input && t.expected !== undefined)
         .slice(0, 10)
     : [];
+
+  // [MỚI] Normalize cây quyết định JSON
+  tip.cayQuyetDinhJson = normalizeCayQuyetDinhJson(raw.cayQuyetDinhJson);
 
   return tip;
 }
@@ -182,7 +231,7 @@ async function goiVaParse({ side, owner, messages, tempKeys, label }) {
         messages,
         options: {
           temperature: 0.2,
-          maxTokens: 4096,
+          maxTokens: 8192,
           excludeModels: [...excludeModels],
           responseFormat: 'json',
         },
@@ -204,7 +253,8 @@ async function goiVaParse({ side, owner, messages, tempKeys, label }) {
 
       logger.success(
         `${label} xong (lần ${attempt}): ${result.provider}/${result.modelId} ` +
-        `[${tip.category}] patterns=${tip.patterns.length}, logicType=${tip.logicType}`
+        `[${tip.category}] patterns=${tip.patterns.length}, logicType=${tip.logicType}, ` +
+        `rules=${tip.cayQuyetDinhJson ? tip.cayQuyetDinhJson.rules.length : 0}`
       );
 
       return {
@@ -288,8 +338,9 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner, te
   parts.push(`- logicValue: ${tip.logicValue || '(TRỐNG)'}`);
   parts.push(`- outputTpl: ${tip.outputTpl || '(TRỐNG)'}`);
   parts.push(`- tests: ${JSON.stringify(tip.tests || [])}`);
+  parts.push(`- cayQuyetDinhJson: ${JSON.stringify(tip.cayQuyetDinhJson || null)}`);
   parts.push(`\n⚠️ TRƯỜNG CẦN BỔ SUNG: ${missingFields.join(', ')}`);
-  parts.push(`\n🎯 Trả JSON đầy đủ 14 trường + 4 trường máy + tests.`);
+  parts.push(`\n🎯 Trả JSON đầy đủ 14 trường + 4 trường máy + tests + cayQuyetDinhJson.`);
   parts.push(`\nCHỈ trả JSON, KHÔNG có text trước hoặc sau.`);
 
   const messages = [
@@ -310,8 +361,56 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner, te
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   [MỚI] BỔ SUNG CÂY — Não trái thêm nhánh vào TIP cũ
+   ═══════════════════════════════════════════════════════════════ */
+
+async function boSungCay({ tipCu, problem, owner, tempKeys = null }) {
+  if (!tipCu || typeof tipCu !== 'object') throw new Error('TIP cũ không hợp lệ');
+  if (!problem || problem.trim() === '') throw new Error('Vấn đề rỗng');
+
+  const cayCu = tipCu.cayQuyetDinhJson || { category: tipCu.category || 'general', rules: [], fallback: {} };
+
+  const parts = [];
+  parts.push(`📌 VẤN ĐỀ MỚI (chưa được cây cũ xử lý):\n${problem}`);
+  parts.push(`\n🌳 CÂY QUYẾT ĐỊNH HIỆN TẠI:`);
+  parts.push(`- Category: ${cayCu.category}`);
+  parts.push(`- Số rules hiện có: ${(cayCu.rules || []).length}`);
+  parts.push(`- Rules hiện tại:`);
+  (cayCu.rules || []).slice(0, 50).forEach((r, i) => {
+    parts.push(`  [${i + 1}] if: ${r.if} → logicValue: ${r.then?.logicValue}`);
+  });
+  parts.push(`\n📚 CÁC TRƯỜNG 14 CỦA TIP CŨ:`);
+  parts.push(`- nguyenLy: ${tipCu.nguyenLy || ''}`);
+  parts.push(`- category: ${tipCu.category || ''}`);
+  parts.push(`- logicType: ${tipCu.logicType || ''}`);
+  parts.push(`- logicValue: ${tipCu.logicValue || ''}`);
+  parts.push(`- patterns: ${(tipCu.patterns || []).slice(0, 5).join(' | ')}`);
+
+  parts.push(`\n🎯 YÊU CẦU:`);
+  parts.push(`- BỔ SUNG rules mới vào cây cũ để cover vấn đề mới`);
+  parts.push(`- KHÔNG xóa rules cũ`);
+  parts.push(`- KHÔNG sinh TIP mới — chỉ mở rộng cây`);
+  parts.push(`- Trả JSON với cấu trúc ĐẦY ĐỦ (14 trường cũ + 4 trường máy + cayQuyetDinhJson mới)`);
+  parts.push(`- cayQuyetDinhJson mới phải có TẤT CẢ rules cũ + rules mới`);
+  parts.push(`- Điều kiện "if" dùng BIẾN CHUẨN theo category`);
+  parts.push(`\nCHỈ trả JSON, KHÔNG có text trước hoặc sau.`);
+
+  const messages = [
+    { role: 'system', content: naoTraiPrompt.SYSTEM_PROMPT },
+    { role: 'user', content: parts.join('\n') },
+  ];
+
+  logger.info(`🧠 Não trái bổ sung cây — cây cũ có ${(cayCu.rules || []).length} rules`);
+
+  return await goiVaParse({
+    side: 'left', owner, messages, tempKeys, label: '🧠 Não trái (bổ sung cây)',
+  });
+}
+
 module.exports = {
-  phanTich, boSung, parseJSONFromModel, normalizeTIP,
+  phanTich, boSung, boSungCay,
+  parseJSONFromModel, normalizeTIP, normalizeCayQuyetDinhJson,
   sanitizeJsonText, unescapeNewlines,
-  FIELDS_14, VALID_CATEGORIES, VALID_LOGIC_TYPES,
+  FIELDS_14, VALID_CATEGORIES, VALID_LOGIC_TYPES, MAX_RULES,
 };
