@@ -1,8 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 PROMPT — NÃO TRÁI
-   - Sinh TIP 14 trường + 4 trường máy + cây JSON (100 rules)
-   - Nhận context user (profile, intent history)
-   - Patterns/keywords ĐÚNG CHỦ ĐỀ
+   - Sinh TIP với code có \n rõ ràng
+   - [SỬA] Ép code xuống dòng đúng cách
    ═══════════════════════════════════════════════════════════════ */
 
 const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho Kho 2.
@@ -48,16 +47,7 @@ const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho
 
   "cayQuyetDinhJson": {
     "category": "math|code|bugfix|explain|general",
-    "rules": [
-      {
-        "if": "soLuongSo == 2",
-        "then": {
-          "logicType": "expr",
-          "logicValue": "a + b",
-          "outputTpl": "{a} + {b} = **{kq}**"
-        }
-      }
-    ],
+    "rules": [ ... 100 rules ... ],
     "fallback": { "logicType": "", "logicValue": "", "outputTpl": "Không xử lý được" }
   }
 }
@@ -78,13 +68,54 @@ const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho
 
 ▶ HTML/WEB/SHOP/SPCK/UI → HTML + CSS + JS SINGLE-FILE (<!DOCTYPE html>)
 ▶ PYTHON — CHỈ khi user NÓI RÕ "python" hoặc "py"
-▶ SCRIPT/AUTOMATION/BACKEND — mặc định HTML/JS nếu user dùng SPCK, Python nếu không rõ
 ▶ NODE.JS/EXPRESS → JavaScript
 ▶ USER NÓI RÕ → THEO USER
 
-🚨 QUY TẮC QUAN TRỌNG NHẤT:
-Nếu câu hỏi CÓ "spck" HOẶC "html" HOẶC "web" HOẶC "ui" → LUÔN chọn HTML/JS.
-KHÔNG chọn Python chỉ vì có chữ "api", "ai", "script".
+🚨 Nếu câu hỏi CÓ "spck"/"html"/"web"/"ui" → LUÔN HTML/JS.
+
+═══════════════════════════════════════════════════
+🚨🚨🚨 QUY TẮC CỰC QUAN TRỌNG — CODE PHẢI CÓ \\n XUỐNG DÒNG
+═══════════════════════════════════════════════════
+
+🔥 BẮT BUỘC — KHI SINH CODE (logicType="code"/"patch"):
+
+1. Code PHẢI có xuống dòng (\n) giữa các dòng lệnh
+2. KHÔNG dồn code thành 1 dòng dài
+3. Trong JSON, dùng \\n (2 ký tự: dấu gạch chéo ngược + n) để chỉ xuống dòng
+4. VD code HTML phải xuống dòng như sau:
+
+✅ ĐÚNG (JSON):
+"logicValue": "<!DOCTYPE html>\\n<html>\\n<head>\\n<meta charset='UTF-8'>\\n<title>Shop</title>\\n<style>\\nbody { font-family: sans-serif; }\\n</style>\\n</head>\\n<body>\\n<h1>Shop</h1>\\n<script>\\nconsole.log('hello');\\n</script>\\n</body>\\n</html>"
+
+❌ SAI (JSON):
+"logicValue": "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Shop</title><style>body{font-family:sans-serif;}</style></head><body><h1>Shop</h1><script>console.log('hello');</script></body></html>"
+
+📌 QUY TẮC XUỐNG DÒNG:
+
+▶ HTML:
+   - Mỗi thẻ khối (html, head, body, div, script, style) → xuống dòng
+   - Sau DOCTYPE → xuống dòng
+   - Trước/Sau thẻ đóng → xuống dòng
+
+▶ CSS:
+   - Mỗi selector { } → xuống dòng
+   - Mỗi thuộc tính → có thể cùng dòng hoặc xuống dòng
+
+▶ JS:
+   - Mỗi statement (;, }) → xuống dòng
+   - Mỗi function { } → xuống dòng
+
+▶ Python:
+   - Mỗi statement → xuống dòng
+   - Trong function → indent 4 space
+
+📌 VÍ DỤ CODE PYTHON:
+
+✅ ĐÚNG:
+"logicValue": "def factorial(n):\\n    if n <= 1:\\n        return 1\\n    return n * factorial(n - 1)\\nprint(factorial(5))"
+
+❌ SAI:
+"logicValue": "def factorial(n): if n <= 1: return 1 return n * factorial(n - 1) print(factorial(5))"
 
 ═══════════════════════════════════════════════════
 🚨 QUY TẮC CỨNG — patterns ĐÚNG CHỦ ĐỀ
@@ -93,91 +124,32 @@ KHÔNG chọn Python chỉ vì có chữ "api", "ai", "script".
 patterns PHẢI:
 1. CHỈ chứa từ khóa CÙNG CHỦ ĐỀ với câu hỏi user
 2. KHÔNG copy pattern từ ví dụ
-3. KHÔNG trộn chủ đề (VD Python + shop)
-
-📌 VÍ DỤ SAI:
-User hỏi: "viết hàm giai thừa Python"
-❌ patterns = ["viết hàm giai thừa", "tạo shop bán đồng hồ", "làm web"]
-✅ patterns = ["viết hàm giai thừa", "code giai thừa python", "hàm tính giai thừa", ...]
-
-User hỏi: "tạo shop HTML cho spck"
-❌ patterns = ["tạo shop", "viết hàm", "tính giai thừa"]
-✅ patterns = ["tạo shop html", "làm web spck", "shop html cho điện thoại", ...]
+3. KHÔNG trộn chủ đề
 
 ═══════════════════════════════════════════════════
 🌳 QUY TẮC CỨNG — SINH cayQuyetDinhJson SIÊU RỘNG
 ═══════════════════════════════════════════════════
 
-🚨 BẮT BUỘC — cayQuyetDinhJson phải:
-1. Cấu trúc: { category, rules: [...], fallback: {...} }
-2. **Sinh 100 RULES** cover MỌI biến thể có thể của chủ đề
-3. Mỗi rule: { if: "điều kiện", then: { logicType, logicValue, outputTpl } }
-4. Điều kiện "if" dùng BIẾN CHUẨN
-5. **KHÔNG được có rules lạc chủ đề**
+🚨 cayQuyetDinhJson phải có **100 RULES** cover MỌI biến thể.
+Mỗi rule: { if: "điều kiện", then: { logicType, logicValue, outputTpl } }
+Điều kiện "if" dùng BIẾN CHUẨN.
+🚨 logicValue trong mỗi rule cũng PHẢI có \\n nếu là code.
 
 📌 BIẾN CHUẨN:
-
-▶ MATH:
-   soLuongSo, coSoAm, coSoThapPhan, coSo0, tuKhoa, a, b, c, d, e, f, g, h
-
-▶ CODE:
-   ngonNgu, loai, tenHam, thamSo, mucDich, hasImage, hasForm, hasButton, hasCart
-
-▶ BUGFIX:
-   loaiLoi, ngonNgu, dongLoi, noiDungLoi
-
-▶ EXPLAIN:
-   loaiVan, doDai, chuDe, giongVan
-
-📌 VÍ DỤ 100 RULES CHO PHÉP CỘNG:
-
-Sinh rules theo mọi kết hợp:
-- soLuongSo == 2, 3, 4, 5, 6, 7, 8, >= 9
-- coSoAm == true, coSoThapPhan == true, coSo0 == true
-- tuKhoa == 'cộng', 'tổng', 'plus', 'add', 'sum'
-- Kết hợp: soLuongSo == 3 && coSoAm == true
-- v.v... → CÀNG NHIỀU RULES CÀNG TỐT (tối thiểu 100)
-
-📌 VÍ DỤ 100 RULES CHO HTML SHOP:
-
-- ngonNgu == 'html' && loai == 'shop' && hasCart == false
-- ngonNgu == 'html' && loai == 'shop' && hasCart == true
-- ngonNgu == 'html' && loai == 'shop' && hasButton == true
-- ngonNgu == 'html' && loai == 'form'
-- ngonNgu == 'html' && loai == 'dashboard'
-- v.v... → CÀNG NHIỀU CÀNG TỐT
+▶ MATH: soLuongSo, coSoAm, coSoThapPhan, coSo0, tuKhoa, a-h
+▶ CODE: ngonNgu, loai, tenHam, thamSo, mucDich, hasImage, hasForm, hasButton, hasCart
+▶ BUGFIX: loaiLoi, ngonNgu, dongLoi, noiDungLoi
+▶ EXPLAIN: loaiVan, doDai, chuDe, giongVan
 
 ═══════════════════════════════════════════════════
-📚 VÍ DỤ ĐÚNG — PHÉP CỘNG
-═══════════════════════════════════════════════════
-
-"category": "math"
-"patterns": [
-  "{a} cộng {b}", "{a} + {b}", "tính {a} cộng {b}",
-  "tổng của {a} và {b}", "{a} cộng với {b}"
-]
-"keywords": ["cộng", "tổng", "addition", "sum", "+", "cong", "add", "plus"]
-"logicType": "expr"
-"logicValue": "a + b"
-"outputTpl": "{a} + {b} = **{kq}**"
-"cayQuyetDinhJson": {
-  "category": "math",
-  "rules": [ ... 100 rules ... ]
-}
-
-═══════════════════════════════════════════════════
-📚 VÍ DỤ ĐÚNG — HTML SHOP (cho spck)
+📚 VÍ DỤ ĐÚNG — HTML SHOP CÓ \\n
 ═══════════════════════════════════════════════════
 
 "category": "code"
-"patterns": [
-  "tạo web shop", "làm shop html", "shop html cho spck",
-  "web shop cho điện thoại", "trang web bán hàng", "shop online",
-  "code shop html", "html shop mobile", "web bán đồng hồ"
-]
-"keywords": ["web", "shop", "html", "css", "spck", "trang web", "bán hàng", "đồng hồ", "js", "mobile"]
+"patterns": ["tạo web shop", "làm shop html", "shop html cho spck"]
+"keywords": ["web", "shop", "html", "css", "spck", "bán hàng"]
 "logicType": "code"
-"logicValue": "<!DOCTYPE html>...đầy đủ HTML/CSS/JS...</html>"
+"logicValue": "<!DOCTYPE html>\\n<html>\\n<head>\\n<meta charset='UTF-8'>\\n<title>Shop</title>\\n<style>\\nbody { font-family: sans-serif; padding: 10px; }\\n.product { border: 1px solid #ccc; padding: 10px; }\\n</style>\\n</head>\\n<body>\\n<h1>Shop Đồng Hồ</h1>\\n<div id='products'></div>\\n<script>\\nconst products = [\\n  { name: 'Đồng hồ A', price: 100 },\\n  { name: 'Đồng hồ B', price: 200 }\\n];\\nconsole.log(products);\\n</script>\\n</body>\\n</html>"
 "outputTpl": "**Code HTML shop:**\\n\\n\\\`\\\`\\\`html\\n{kq}\\n\\\`\\\`\\\`"
 
 ═══════════════════════════════════════════════════
@@ -186,15 +158,12 @@ Sinh rules theo mọi kết hợp:
 1. Trả JSON THUẦN.
 2. patterns 12-15 mẫu CÙNG CHỦ ĐỀ.
 3. logicValue khớp logicType + ĐÚNG ngôn ngữ.
-4. outputTpl có {kq}.
-5. tests có ít nhất 1 case nếu logicType="expr".
-6. keywords 8-12 từ CÙNG CHỦ ĐỀ.
-7. TIẾNG VIỆT.
+4. 🚨 CODE PHẢI CÓ \\n XUỐNG DÒNG — đây là quy tắc quan trọng nhất.
+5. 🚨 patterns + keywords KHÔNG LẠC CHỦ ĐỀ.
+6. 🚨 cayQuyetDinhJson có 100 RULES.
+7. outputTpl có {kq}.
 8. Ký tự đầu = {, cuối = }.
-9. 🚨 patterns KHÔNG LẠC CHỦ ĐỀ.
-10. 🚨 keywords KHÔNG LẠC CHỦ ĐỀ.
-11. 🚨 cayQuyetDinhJson có **100 RULES**, KHÔNG LẠC CHỦ ĐỀ.
-12. 🚨 Nếu câu hỏi có "spck"/"html"/"web"/"ui" → **LUÔN HTML/JS**.
+9. Nếu có "spck"/"html"/"web" → HTML/JS.
 
 ═══════════════════════════════════════════════════
 BẮT ĐẦU TRẢ JSON NGAY
@@ -210,18 +179,17 @@ function buildUserMessage({ problem, context = '', relatedTIPs = [], webResults 
     if (userProfile.techStack?.length) parts.push(`- Tech stack: ${userProfile.techStack.join(', ')}`);
     if (userProfile.commonProjects?.length) parts.push(`- Loại dự án hay làm: ${userProfile.commonProjects.join(', ')}`);
     if (userProfile.preferredEditor) parts.push(`- Editor: ${userProfile.preferredEditor}`);
-    if (userProfile.skillLevel) parts.push(`- Trình độ: ${userProfile.skillLevel}`);
   }
 
   if (intentHistory?.length) {
     const recent = intentHistory.slice(-10).join(' → ');
-    parts.push(`\n📊 LỊCH SỬ INTENT (10 gần nhất): ${recent}`);
+    parts.push(`\n📊 LỊCH SỬ INTENT: ${recent}`);
   }
 
   if (context) parts.push(`\n🧠 NGỮ CẢNH:\n${context}`);
 
   if (relatedTIPs && relatedTIPs.length > 0) {
-    parts.push(`\n📚 TIP LIÊN QUAN (tham khảo):`);
+    parts.push(`\n📚 TIP LIÊN QUAN:`);
     relatedTIPs.forEach((tip, i) => {
       parts.push(`\n[${i + 1}] ${(tip.nguyenLy || '').slice(0, 100)}`);
       if (tip.patterns) parts.push(`    Patterns: ${tip.patterns.slice(0, 3).join(' | ')}`);
@@ -232,15 +200,18 @@ function buildUserMessage({ problem, context = '', relatedTIPs = [], webResults 
 
   parts.push(`\n\n⚠️ QUY TẮC CỨNG:`);
   parts.push(`- PHÉP TÍNH → logicType="expr"`);
-  parts.push(`- VIẾT CODE/HÀM → logicType="code"`);
-  parts.push(`- SỬA CODE → logicType="patch"`);
-  parts.push(``);
-  parts.push(`🎯 CHỌN NGÔN NGỮ:`);
-  parts.push(`- Có "spck"/"html"/"web"/"ui" → HTML/CSS/JS`);
+  parts.push(`- VIẾT CODE → logicType="code"`);
+  parts.push(`- Có "spck"/"html"/"web" → HTML/CSS/JS`);
   parts.push(`- CHỈ chọn Python khi user NÓI RÕ "python"`);
   parts.push(``);
-  parts.push(`🚨 patterns + keywords PHẢI CÙNG CHỦ ĐỀ — không trộn.`);
-  parts.push(`🚨 cayQuyetDinhJson PHẢI có 100 RULES.`);
+  parts.push(`🚨🚨🚨 CODE PHẢI CÓ \\n XUỐNG DÒNG:`.replace('\\n', '\\n'));
+  parts.push(`- Code KHÔNG được dồn 1 dòng`);
+  parts.push(`- Mỗi thẻ HTML / statement JS / dòng Python → xuống dòng`);
+  parts.push(`- Trong JSON dùng \\n để chỉ xuống dòng`);
+  parts.push(`- VD: "<!DOCTYPE html>\\n<html>\\n<head>\\n..."`);
+  parts.push(``);
+  parts.push(`🚨 patterns + keywords CÙNG CHỦ ĐỀ.`);
+  parts.push(`🚨 cayQuyetDinhJson có 100 RULES.`);
   parts.push(`⚠️ CHỈ JSON.`);
   return parts.join('\n');
 }

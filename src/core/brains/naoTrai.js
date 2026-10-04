@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 NÃO TRÁI
    - Sinh TIP với cây JSON (100 rules)
-   - Nhận userProfile + intentHistory
+   - [MỚI] Beautify code tự động — thêm \n nếu code dồn 1 dòng
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
@@ -21,7 +21,11 @@ const VALID_LOGIC_TYPES = ['expr', 'code', 'patch', ''];
 
 const MAX_JSON_RETRY = 3;
 const MAX_RULES = 500;
-const MIN_RULES = 100;
+const MIN_RULES = 95;
+
+/* ═══════════════════════════════════════════════════════════════
+   UNESCAPE
+   ═══════════════════════════════════════════════════════════════ */
 
 function unescapeNewlines(str) {
   if (typeof str !== 'string') return '';
@@ -35,6 +39,58 @@ function unescapeNewlines(str) {
     .replace(/\\\\/g, '\\');
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   [MỚI] BEAUTIFY CODE — Thêm \n nếu code bị dồn 1 dòng
+   ═══════════════════════════════════════════════════════════════ */
+
+function beautifyCode(code) {
+  if (typeof code !== 'string' || code.length < 50) return code;
+
+  const lineCount = (code.match(/\n/g) || []).length;
+  // Nếu code đã có ≥ 3 dòng → giữ nguyên
+  if (lineCount >= 3) return code;
+
+  const c = code;
+  const len = c.length;
+  if (len < 100) return code;
+
+  let out = c;
+
+  // 1. HTML/XML: xuống dòng trước mỗi thẻ mở/đóng
+  // Thêm \n trước < nhưng không phải khi đã có \n
+  out = out.replace(/([>])\s*(<)/g, '$1\n$2');
+
+  // 2. Xuống dòng sau DOCTYPE
+  out = out.replace(/(<!DOCTYPE[^>]+>)\s*(?=<)/gi, '$1\n');
+
+  // 3. CSS/JS: xuống dòng sau `}` nếu chưa có
+  out = out.replace(/\}\s*(?=\S)/g, '}\n');
+
+  // 4. CSS: xuống dòng sau `;` khi trong block
+  out = out.replace(/;\s*(?=[.#a-zA-Z@\[])/g, ';\n');
+
+  // 5. JS: xuống dòng sau `;` khi đứng trước từ khóa
+  out = out.replace(/;\s*(?=(const|let|var|function|return|if|for|while|console|document|window))/g, ';\n');
+
+  // 6. Xuống dòng sau `{` của function/block
+  out = out.replace(/\{\s*(?=\S)/g, '{\n');
+
+  // 7. Dọn dẹp: bỏ dòng trắng liên tiếp
+  out = out.replace(/\n{3,}/g, '\n\n');
+
+  // 8. Trim từng dòng
+  out = out.split('\n').map((line) => line.trimEnd()).join('\n');
+
+  // 9. Trim tổng
+  out = out.trim();
+
+  return out;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SANITIZE + PARSE JSON
+   ═══════════════════════════════════════════════════════════════ */
+
 function sanitizeJsonText(text) {
   if (!text || typeof text !== 'string') return '';
   let s = text;
@@ -45,10 +101,7 @@ function sanitizeJsonText(text) {
   const last = s.lastIndexOf('}');
   if (first !== -1 && last > first) s = s.slice(first, last + 1);
   s = s.replace(/,\s*([}\]])/g, '$1');
-  s = s.replace(
-    /([{,]\s*)([a-zA-Z_\u00C0-\u1EF9][a-zA-Z0-9_\u00C0-\u1EF9]*)\s*:/g,
-    '$1"$2":'
-  );
+  s = s.replace(/([{,]\s*)([a-zA-Z_\u00C0-\u1EF9][a-zA-Z0-9_\u00C0-\u1EF9]*)\s*:/g, '$1"$2":');
   return s;
 }
 
@@ -72,6 +125,10 @@ function parseJSONFromModel(raw) {
   throw new Error(`Không parse được JSON: ${lastErr?.message || 'unknown'}`);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   NORMALIZE
+   ═══════════════════════════════════════════════════════════════ */
+
 function normalizeCayQuyetDinhJson(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
 
@@ -85,11 +142,15 @@ function normalizeCayQuyetDinhJson(raw) {
       .map((r) => {
         const then = r.then || {};
         const lt = String(then.logicType || '').toLowerCase().trim();
+        let lv = unescapeNewlines(typeof then.logicValue === 'string' ? then.logicValue : '');
+        // [MỚI] Beautify code
+        if (lt === 'code' || lt === 'patch') lv = beautifyCode(lv);
+
         return {
           if: unescapeNewlines(String(r.if).trim()),
           then: {
             logicType: VALID_LOGIC_TYPES.includes(lt) ? lt : '',
-            logicValue: unescapeNewlines(typeof then.logicValue === 'string' ? then.logicValue : ''),
+            logicValue: lv,
             outputTpl: unescapeNewlines(typeof then.outputTpl === 'string' ? then.outputTpl : ''),
           },
         };
@@ -97,11 +158,7 @@ function normalizeCayQuyetDinhJson(raw) {
       .slice(0, MAX_RULES);
   }
 
-  let fallback = {
-    logicType: '',
-    logicValue: '',
-    outputTpl: 'Không xử lý được — cần sinh TIP mới',
-  };
+  let fallback = { logicType: '', logicValue: '', outputTpl: 'Không xử lý được — cần sinh TIP mới' };
   if (raw.fallback && typeof raw.fallback === 'object') {
     fallback = {
       logicType: String(raw.fallback.logicType || ''),
@@ -145,7 +202,17 @@ function normalizeTIP(raw) {
   if (!VALID_LOGIC_TYPES.includes(logicType)) logicType = '';
   tip.logicType = logicType;
 
-  tip.logicValue = unescapeNewlines(typeof raw.logicValue === 'string' ? raw.logicValue.trim() : '');
+  let lv = unescapeNewlines(typeof raw.logicValue === 'string' ? raw.logicValue.trim() : '');
+  // [MỚI] Beautify code
+  if (logicType === 'code' || logicType === 'patch') {
+    const before = lv.length;
+    lv = beautifyCode(lv);
+    if (lv.length !== before) {
+      logger.debug(`✨ Beautify code: ${before} → ${lv.length} chars`);
+    }
+  }
+  tip.logicValue = lv;
+
   tip.outputTpl = unescapeNewlines(typeof raw.outputTpl === 'string' ? raw.outputTpl.trim() : '');
 
   tip.tests = Array.isArray(raw.tests)
@@ -155,6 +222,10 @@ function normalizeTIP(raw) {
   tip.cayQuyetDinhJson = normalizeCayQuyetDinhJson(raw.cayQuyetDinhJson);
   return tip;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   GỌI MODEL + PARSE
+   ═══════════════════════════════════════════════════════════════ */
 
 async function goiVaParse({ side, owner, messages, tempKeys, label }) {
   const excludeModels = new Set();
@@ -168,12 +239,7 @@ async function goiVaParse({ side, owner, messages, tempKeys, label }) {
         userId: owner.userId,
         guestSessionId: owner.guestSessionId,
         messages,
-        options: {
-          temperature: 0.2,
-          maxTokens: 8192,
-          excludeModels: [...excludeModels],
-          responseFormat: 'json',
-        },
+        options: { temperature: 0.2, maxTokens: 8192, excludeModels: [...excludeModels], responseFormat: 'json' },
         tempKeys,
       });
     } catch (err) {
@@ -186,14 +252,13 @@ async function goiVaParse({ side, owner, messages, tempKeys, label }) {
       const rawObj = parseJSONFromModel(result.text);
       const tip = normalizeTIP(rawObj);
 
-      if (!tip.nguyenLy || tip.nguyenLy.trim() === '') {
-        throw new Error('TIP thiếu nguyenLy');
-      }
+      if (!tip.nguyenLy || tip.nguyenLy.trim() === '') throw new Error('TIP thiếu nguyenLy');
 
       logger.success(
         `${label} xong (lần ${attempt}): ${result.provider}/${result.modelId} ` +
         `[${tip.category}] patterns=${tip.patterns.length}, logicType=${tip.logicType}, ` +
-        `rules=${tip.cayQuyetDinhJson ? tip.cayQuyetDinhJson.rules.length : 0}`
+        `rules=${tip.cayQuyetDinhJson ? tip.cayQuyetDinhJson.rules.length : 0}, ` +
+        `codeLines=${(tip.logicValue || '').split('\n').length}`
       );
 
       return { tip, meta: { provider: result.provider, modelId: result.modelId, keyId: result.keyId, usage: result.usage, attempts: attempt } };
@@ -212,8 +277,7 @@ async function phanTich({ problem, context = '', relatedTIPs = [], webResults = 
   if (!owner || (!owner.userId && !owner.guestSessionId && !tempKeys)) throw new Error('Thiếu owner');
 
   const userMessage = naoTraiPrompt.buildUserMessage({
-    problem: problem.trim(), context, relatedTIPs, webResults,
-    userProfile, intentHistory,
+    problem: problem.trim(), context, relatedTIPs, webResults, userProfile, intentHistory,
   });
 
   const messages = [
@@ -241,7 +305,6 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner, te
   if (userProfile) {
     parts.push(`\n👤 USER PROFILE:`);
     if (userProfile.preferredLang) parts.push(`- Ngôn ngữ ưa thích: ${userProfile.preferredLang}`);
-    if (userProfile.techStack?.length) parts.push(`- Tech stack: ${userProfile.techStack.join(', ')}`);
     if (userProfile.preferredEditor) parts.push(`- Editor: ${userProfile.preferredEditor}`);
   }
 
@@ -260,7 +323,8 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner, te
   parts.push(`- cayQuyetDinhJson: ${JSON.stringify(tip.cayQuyetDinhJson || null)}`);
   parts.push(`\n⚠️ TRƯỜNG CẦN BỔ SUNG: ${missingFields.join(', ')}`);
   parts.push(`\n🎯 Trả JSON đầy đủ 14 trường + 4 trường máy + tests + cayQuyetDinhJson (100 rules).`);
-  parts.push(`\nCHỈ trả JSON.`);
+  parts.push(`🚨 CODE PHẢI CÓ \\n XUỐNG DÒNG.`);
+  parts.push(`\nCHỈ JSON.`);
 
   const messages = [
     { role: 'system', content: naoTraiPrompt.SYSTEM_PROMPT },
@@ -312,7 +376,7 @@ async function boSungCay({ tipCu, problem, owner, tempKeys = null, userProfile =
   parts.push(`- KHÔNG sinh TIP mới — chỉ mở rộng cây`);
   parts.push(`- Trả JSON ĐẦY ĐỦ (14 trường + 4 trường máy + cayQuyetDinhJson)`);
   parts.push(`- cayQuyetDinhJson mới phải có TẤT CẢ rules cũ + 100 rules mới`);
-  parts.push(`- Điều kiện "if" dùng BIẾN CHUẨN`);
+  parts.push(`- 🚨 CODE PHẢI CÓ \\n XUỐNG DÒNG`);
   parts.push(`\nCHỈ JSON.`);
 
   const messages = [
@@ -328,6 +392,6 @@ async function boSungCay({ tipCu, problem, owner, tempKeys = null, userProfile =
 module.exports = {
   phanTich, boSung, boSungCay,
   parseJSONFromModel, normalizeTIP, normalizeCayQuyetDinhJson,
-  sanitizeJsonText, unescapeNewlines,
+  sanitizeJsonText, unescapeNewlines, beautifyCode,
   FIELDS_14, VALID_CATEGORIES, VALID_LOGIC_TYPES, MAX_RULES, MIN_RULES,
 };
