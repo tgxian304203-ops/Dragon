@@ -1,5 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    🕐 RECENT CONTROLLER (RC1–RC3)
+   - Gần đây: chỉ conv KHÔNG thuộc dự án nào
    ═══════════════════════════════════════════════════════════════ */
 
 const Conversation = require('../models/conversation.model');
@@ -18,6 +19,9 @@ async function list(req, res) {
     ? { userId: owner.userId }
     : { guestSessionId: owner.guestSessionId };
 
+  /* ═══ [MỚI] Chỉ lấy conv KHÔNG thuộc dự án ═══ */
+  query.projectId = null;
+
   const items = await Conversation.find(query)
     .sort({ lastMessageAt: -1 })
     .limit(10)
@@ -29,7 +33,7 @@ async function list(req, res) {
       title: c.title,
       messageCount: c.messageCount,
       lastMessageAt: c.lastMessageAt,
-      projectId: c.projectId?.toString() || null,
+      projectId: null,
     })),
   });
 }
