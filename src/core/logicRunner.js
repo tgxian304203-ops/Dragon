@@ -4,7 +4,7 @@
    - Nhánh expr: mathjs | Nhánh code/patch: Judge0
    - HTML/CSS: KHÔNG chạy Judge0
    - chayCayQuyetDinh — Tiểu não tư duy từ cây JSON
-   - [SỬA] evalCondition whitelist đầy đủ (", ', <, >, =, &, |)
+   - [SỬA] evalCondition không thay biến vào giữa từ khác (Unicode safe)
    - [SỬA] mathjs xử lý biến undefined (sum động)
    ═══════════════════════════════════════════════════════════════ */
 
@@ -324,7 +324,7 @@ function extractVarsTheoCategory(problem, category) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   [SỬA] EVAL ĐIỀU KIỆN — WHITELIST ĐẦY ĐỦ
+   [SỬA] EVAL ĐIỀU KIỆN — KHÔNG THAY BIẾN VÀO GIỮA TỪ KHÁC
    ═══════════════════════════════════════════════════════════════ */
 
 function evalCondition(condition, vars) {
@@ -337,24 +337,29 @@ function evalCondition(condition, vars) {
     return false;
   }
 
-  // Thay biến chuẩn bằng giá trị
+  // [SỬA] Thay biến — CHỈ KHI ĐỨNG RIÊNG (Unicode safe)
   let expr = condition;
   const keys = Object.keys(vars).sort((a, b) => b.length - a.length);
+
   for (const k of keys) {
-    const re = new RegExp(`\\b${k}\\b`, 'g');
     const val = vars[k];
     let valStr;
     if (typeof val === 'string') valStr = JSON.stringify(val);
     else if (typeof val === 'boolean') valStr = String(val);
     else if (typeof val === 'number') valStr = String(val);
     else valStr = 'null';
-    expr = expr.replace(re, valStr);
+
+    // [SỬA] Chỉ thay khi biến đứng riêng — không match trong từ khác
+    // VD: không thay "c" trong "cộng" thành "3"
+    const escapedK = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(^|[^\\p{L}\\p{N}_])${escapedK}(?![\\p{L}\\p{N}_])`, 'gu');
+    expr = expr.replace(re, `$1${valStr}`);
   }
 
-  // [SỬA] Whitelist ĐẦY ĐỦ — cho phép ", ', <, >, =, !, &, |, space, số, chữ, _ và toán tử
+  // Whitelist ký tự an toàn
   const safeChars = /^[\s\d+\-*/%().<>=!&|'"a-zA-Z_,;]+$/;
   if (!safeChars.test(expr)) {
-    logger.warn(`evalCondition: ký tự không an toàn — "${expr}"`);
+    logger.debug(`evalCondition: ký tự không an toàn — "${expr}"`);
     return false;
   }
 
@@ -375,17 +380,10 @@ function evalCondition(condition, vars) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   [SỬA] MATHJS — Xử lý biến undefined (sum động)
+   MATHJS — Xử lý biến undefined (sum động)
    ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Thay thế sum([a,b,c,...]) bằng danh sách biến có giá trị thực.
- * VD: logicValue = "sum([a,b,c,d,e,f,g,h])"
- *     vars = {a:1, b:2, c:3, d:4, e:5}  (không có f,g,h)
- * → "sum([1,2,3,4,5])"
- */
 function fixDynamicSum(logicValue, scope) {
-  // Match sum([...])
   return String(logicValue).replace(/sum\s*\(\s*\[([^\]]+)\]\s*\)/gi, (match, inner) => {
     const names = inner.split(',').map((s) => s.trim()).filter(Boolean);
     const validNames = names.filter((n) => typeof scope[n] === 'number' && Number.isFinite(scope[n]));
@@ -394,15 +392,8 @@ function fixDynamicSum(logicValue, scope) {
   });
 }
 
-/**
- * Thay các biến chưa định nghĩa trong biểu thức bằng 0 để tránh lỗi mathjs.
- * Chỉ áp dụng cho các chữ cái đơn (a-h) — an toàn.
- */
 function safeEvalMathjs(logicValue, scope) {
-  // Bước 1: Fix sum động
   let expr = fixDynamicSum(logicValue, scope);
-
-  // Bước 2: Thay các biến đơn chưa có bằng 0
   const singleLetters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
   for (const letter of singleLetters) {
     if (typeof scope[letter] !== 'number') {
@@ -410,7 +401,6 @@ function safeEvalMathjs(logicValue, scope) {
       expr = expr.replace(re, '0');
     }
   }
-
   return expr;
 }
 
@@ -477,10 +467,7 @@ async function chayLogicVoiVars({ logicType, logicValue, outputTpl, vars, proble
         if (typeof v === 'number') scope[k] = v;
       }
 
-      // [SỬA] Dùng safeEvalMathjs để xử lý biến undefined
       const exprSafe = safeEvalMathjs(logicValue, scope);
-
-      // Tạo scope mới chỉ chứa biến có giá trị
       const scopeSafe = {};
       for (const [k, v] of Object.entries(scope)) {
         if (Number.isFinite(v)) scopeSafe[k] = v;
