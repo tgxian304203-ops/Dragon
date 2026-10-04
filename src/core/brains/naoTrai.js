@@ -2,6 +2,7 @@
    🧠 NÃO TRÁI — Tạo TIP 14 trường + 4 trường máy
    - JSON mode + retry blacklist model
    - Sanitize JSON mạnh — bắt mọi dạng output model
+   - [MỚI] Unescape \\n → xuống dòng thật
    - [MỚI] Ghi feedback.recordHardProblem khi fail 3 lần
    ═══════════════════════════════════════════════════════════════ */
 
@@ -21,6 +22,22 @@ const VALID_CATEGORIES = ['math', 'code', 'bugfix', 'explain', 'general'];
 const VALID_LOGIC_TYPES = ['expr', 'code', 'patch', ''];
 
 const MAX_JSON_RETRY = 3;
+
+/* ═══════════════════════════════════════════════════════════════
+   [MỚI] UNESCAPE — chuyển \n (literal) thành xuống dòng thật
+   ═══════════════════════════════════════════════════════════════ */
+
+function unescapeNewlines(str) {
+  if (typeof str !== 'string') return '';
+  return str
+    .replace(/\\r\\n/g, '\n')   // \r\n → \n
+    .replace(/\\n/g, '\n')       // \n → xuống dòng
+    .replace(/\\r/g, '\r')       // \r → \r
+    .replace(/\\t/g, '\t')       // \t → tab
+    .replace(/\\"/g, '"')        // \" → "
+    .replace(/\\'/g, "'")        // \' → '
+    .replace(/\\\\/g, '\\');     // \\ → \
+}
 
 /* ═══════════════════════════════════════════════════════════════
    SANITIZE + PARSE JSON
@@ -81,7 +98,7 @@ function parseJSONFromModel(raw) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   NORMALIZE TIP
+   NORMALIZE TIP — [SỬA] unescape \n cho mọi trường string
    ═══════════════════════════════════════════════════════════════ */
 
 function normalizeTIP(raw) {
@@ -91,10 +108,14 @@ function normalizeTIP(raw) {
     const value = raw[field];
     if (field === 'quanHe') {
       tip[field] = Array.isArray(value)
-        ? value.filter((v) => typeof v === 'string' && v.trim())
+        ? value
+            .filter((v) => typeof v === 'string' && v.trim())
+            .map((v) => unescapeNewlines(v.trim()))
         : [];
     } else {
-      tip[field] = typeof value === 'string' ? value.trim() : String(value || '');
+      tip[field] = unescapeNewlines(
+        typeof value === 'string' ? value.trim() : String(value || '')
+      );
     }
   }
 
@@ -116,7 +137,7 @@ function normalizeTIP(raw) {
   tip.patterns = Array.isArray(raw.patterns)
     ? raw.patterns
         .filter((p) => typeof p === 'string' && p.trim().length >= 3)
-        .map((p) => p.trim())
+        .map((p) => unescapeNewlines(p.trim()))
         .slice(0, 10)
     : [];
 
@@ -124,8 +145,15 @@ function normalizeTIP(raw) {
   if (!VALID_LOGIC_TYPES.includes(logicType)) logicType = '';
   tip.logicType = logicType;
 
-  tip.logicValue = typeof raw.logicValue === 'string' ? raw.logicValue.trim() : '';
-  tip.outputTpl = typeof raw.outputTpl === 'string' ? raw.outputTpl.trim() : '';
+  // [SỬA] Unescape logicValue — code HTML/Python thường có \n
+  tip.logicValue = unescapeNewlines(
+    typeof raw.logicValue === 'string' ? raw.logicValue.trim() : ''
+  );
+
+  // [SỬA] Unescape outputTpl
+  tip.outputTpl = unescapeNewlines(
+    typeof raw.outputTpl === 'string' ? raw.outputTpl.trim() : ''
+  );
 
   tip.tests = Array.isArray(raw.tests)
     ? raw.tests
@@ -230,7 +258,6 @@ async function phanTich({ problem, context = '', relatedTIPs = [], webResults = 
       side: 'left', owner, messages, tempKeys, label: '🧠 Não trái',
     });
   } catch (err) {
-    // [MỚI] Ghi log câu hỏi khó (bất đồng bộ)
     feedback.recordHardProblem(problem, intent, err.message)
       .catch((e) => logger.warn('feedback.recordHardProblem:', e.message));
     throw err;
@@ -277,7 +304,6 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner, te
       side: 'left', owner, messages, tempKeys, label: '🧠 Não trái (bổ sung)',
     });
   } catch (err) {
-    // [MỚI] Ghi log câu hỏi khó (bất đồng bộ)
     feedback.recordHardProblem(problem, intent, `bổ sung: ${err.message}`)
       .catch((e) => logger.warn('feedback.recordHardProblem:', e.message));
     throw err;
@@ -286,6 +312,6 @@ async function boSung({ tip, missingFields, problem, needCode = false, owner, te
 
 module.exports = {
   phanTich, boSung, parseJSONFromModel, normalizeTIP,
-  sanitizeJsonText,
+  sanitizeJsonText, unescapeNewlines,
   FIELDS_14, VALID_CATEGORIES, VALID_LOGIC_TYPES,
 };
