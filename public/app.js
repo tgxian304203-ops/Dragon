@@ -1,8 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
    🐉 RỒNG THẦN — FRONTEND LOGIC
-   - Voice: giữ mic để ghi, thả tay dừng → text vào ô input
-   - Project: lưu currentProjectId khi mở dự án
-   - Nút bấm project dùng onclick trực tiếp
+   - Code block tách riêng (text + code + output)
+   - Logo SVG cho nút Copy + Output
+   - Voice press-and-hold + project
    ═══════════════════════════════════════════════════════════════ */
 
 const API = {
@@ -32,6 +32,7 @@ const API = {
 
 const CHAO_AI = 'Nói điều ước đi 🔥🐉';
 
+/* ═══ SVG LOGO ═══ */
 const SVG_MOON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
   stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
@@ -48,6 +49,23 @@ const SVG_SUN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fil
   <path d="M20 12h2"/>
   <path d="m6.34 17.66-1.41 1.41"/>
   <path d="m19.07 4.93-1.41 1.41"/>
+</svg>`;
+
+const SVG_CLIPBOARD = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="9" y="2" width="6" height="4" rx="1"/>
+  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+</svg>`;
+
+const SVG_CHECK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+  stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+  <polyline points="20 6 9 17 4 12"/>
+</svg>`;
+
+const SVG_TERMINAL = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <polyline points="4 17 10 11 4 5"/>
+  <line x1="12" y1="19" x2="20" y2="19"/>
 </svg>`;
 
 const $ = (s) => document.querySelector(s);
@@ -136,6 +154,101 @@ function scrollToBottom() {
   requestAnimationFrame(() => { chatMessages.scrollTop = chatMessages.scrollHeight; });
 }
 
+/**
+ * [MỚI] Tạo khung code + output tách riêng.
+ */
+function createCodeBlock({ code, language, output }) {
+  const block = document.createElement('div');
+  block.className = 'code-block';
+
+  // ─── Header ───
+  const header = document.createElement('div');
+  header.className = 'code-header';
+
+  const lang = document.createElement('span');
+  lang.className = 'code-lang';
+  lang.textContent = (language || 'code').toUpperCase();
+  header.appendChild(lang);
+
+  // Nút Copy
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.className = 'code-copy';
+  copyBtn.innerHTML = SVG_CLIPBOARD;
+
+  copyBtn.onclick = function (ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    copyCodeToClipboard(code, copyBtn);
+  };
+
+  header.appendChild(copyBtn);
+  block.appendChild(header);
+
+  // ─── Code content ───
+  const pre = document.createElement('pre');
+  pre.className = 'code-content';
+  pre.textContent = code || '';
+  block.appendChild(pre);
+
+  // ─── Output ───
+  if (output && String(output).trim() !== '') {
+    const outWrap = document.createElement('div');
+    outWrap.className = 'code-output';
+
+    const outHeader = document.createElement('div');
+    outHeader.className = 'code-output-header';
+    outHeader.innerHTML = SVG_TERMINAL + '<span>Output</span>';
+
+    const outContent = document.createElement('div');
+    outContent.textContent = String(output).trim();
+
+    outWrap.appendChild(outHeader);
+    outWrap.appendChild(outContent);
+    block.appendChild(outWrap);
+  }
+
+  return block;
+}
+
+/**
+ * Copy code vào clipboard + đổi icon tạm thời.
+ */
+async function copyCodeToClipboard(code, btn) {
+  try {
+    await navigator.clipboard.writeText(code);
+    btn.innerHTML = SVG_CHECK;
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.innerHTML = SVG_CLIPBOARD;
+      btn.classList.remove('copied');
+    }, 2000);
+  } catch (err) {
+    // Fallback: dùng textarea tạm
+    const ta = document.createElement('textarea');
+    ta.value = code;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+      btn.innerHTML = SVG_CHECK;
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.innerHTML = SVG_CLIPBOARD;
+        btn.classList.remove('copied');
+      }, 2000);
+    } catch (e) {
+      showToast('Không copy được');
+    }
+    document.body.removeChild(ta);
+  }
+}
+
+/**
+ * [SỬA] appendMessage — hỗ trợ hiển thị code + output tách riêng.
+ */
 function appendMessage(role, text, opts = {}) {
   const msg = document.createElement('div');
   msg.className = 'msg ' + role;
@@ -146,15 +259,46 @@ function appendMessage(role, text, opts = {}) {
   avatar.className = 'avatar';
   avatar.textContent = role === 'ai' ? '🐲' : '🦖';
 
-  const bubble = document.createElement('div');
-  bubble.className = 'bubble';
-  bubble.textContent = text;
-
   msg.appendChild(avatar);
-  msg.appendChild(bubble);
+
+  /* ═══ Nếu có code → tách text + code ═══ */
+  const hasCode = opts.code && String(opts.code).trim() !== '';
+
+  // Text bubble (chỉ hiện nếu có text)
+  const cleanText = removeMarkdownCodeBlock(text);
+  if (cleanText && cleanText.trim() !== '') {
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = cleanText.trim();
+    msg.appendChild(bubble);
+  }
+
+  // Code block (nếu có)
+  if (hasCode) {
+    const codeBlock = createCodeBlock({
+      code: opts.code,
+      language: opts.language,
+      output: opts.output,
+    });
+    msg.appendChild(codeBlock);
+  }
+
   chatMessages.appendChild(msg);
   scrollToBottom();
   return msg;
+}
+
+/**
+ * Xóa phần code block khỏi text — vì đã tách ra khung riêng.
+ * VD: "Đây là code:\n```python\n...\n```" → "Đây là code:"
+ */
+function removeMarkdownCodeBlock(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .replace(/```[\s\S]*?```/g, '')         // Bỏ ```...```
+    .replace(/\*\*/g, '')                    // Bỏ ** đậm
+    .replace(/\n{3,}/g, '\n\n')              // Gộp dòng trống
+    .trim();
 }
 
 function clearChat() { chatMessages.innerHTML = ''; }
@@ -302,7 +446,6 @@ async function sendMessage(overrideText, metadata = null) {
       conversationId: currentConversationId,
     };
 
-    /* ═══ [MỚI] Gửi projectId nếu đang trong dự án ═══ */
     if (currentProjectId && !currentConversationId) {
       body.projectId = currentProjectId;
     }
@@ -352,9 +495,14 @@ async function sendMessage(overrideText, metadata = null) {
     currentConversationId = data.conversationId;
 
     pendingMsg.remove();
-    appendMessage('ai', data.reply || '(không có nội dung)');
 
-    /* ═══ Reload: nếu đang trong dự án → load lại project; nếu không → load recent ═══ */
+    /* ═══ [MỚI] Hiển thị AI message với code + output tách riêng ═══ */
+    appendMessage('ai', data.reply || '', {
+      code: data.code || null,
+      language: data.language || null,
+      output: data.output || null,
+    });
+
     if (currentProjectId) {
       await loadProjectConvs(currentProjectId);
     } else {
@@ -790,7 +938,6 @@ async function openConversation(id) {
 
     currentConversationId = id;
 
-    /* Nếu conv thuộc project → giữ currentProjectId */
     if (data.conversation && data.conversation.projectId) {
       currentProjectId = data.conversation.projectId;
     }
@@ -798,7 +945,11 @@ async function openConversation(id) {
     clearChat();
 
     (data.messages || []).forEach((m) => {
-      appendMessage(m.role === 'user' ? 'user' : 'ai', m.text || '');
+      appendMessage(m.role === 'user' ? 'user' : 'ai', m.text || '', {
+        code: m.code || null,
+        language: m.language || null,
+        output: m.output || null,
+      });
     });
 
     closeMenu('left');
@@ -1179,7 +1330,6 @@ function stopVoiceRecording(e) {
 
   if (!isRecording) return;
 
-  // Nếu ghi < 0.5 giây → bỏ qua
   const duration = Date.now() - voiceStartTime;
   if (duration < 500) {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
@@ -1218,7 +1368,6 @@ async function handleVoiceToText(audioBlob) {
     const data = await res.json();
 
     if (data.text && data.text.trim()) {
-      // Điền text vào ô input — KHÔNG tự gửi
       const existing = msgInput.value.trim();
       msgInput.value = existing ? existing + ' ' + data.text.trim() : data.text.trim();
       autoResize();
@@ -1234,13 +1383,10 @@ async function handleVoiceToText(audioBlob) {
   }
 }
 
-/* Gắn sự kiện pointer — press-and-hold */
 btnMic.addEventListener('pointerdown', startVoiceRecording);
 btnMic.addEventListener('pointerup', stopVoiceRecording);
 btnMic.addEventListener('pointercancel', stopVoiceRecording);
 btnMic.addEventListener('pointerleave', stopVoiceRecording);
-
-/* Chặn context menu khi giữ mic (mobile) */
 btnMic.addEventListener('contextmenu', (e) => e.preventDefault());
 
 /* ═══ MODAL VẼ ẢNH ═══ */

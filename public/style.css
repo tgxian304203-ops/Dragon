@@ -31,6 +31,10 @@ html, body {
   --blur-bubble: 16px;
   --radius: 18px;
   --radius-sm: 12px;
+  --code-bg: #0d1117;
+  --code-header-bg: #161b22;
+  --code-text: #e6edf3;
+  --code-border: rgba(255, 255, 255, 0.1);
 }
 
 body.light {
@@ -45,6 +49,10 @@ body.light {
   --text-muted: rgba(15, 23, 42, 0.5);
   --accent: #16a34a;
   --accent-soft: rgba(22, 163, 74, 0.12);
+  --code-bg: #f6f8fa;
+  --code-header-bg: #eaeef2;
+  --code-text: #24292f;
+  --code-border: rgba(0, 0, 0, 0.1);
 }
 
 body {
@@ -152,7 +160,7 @@ body.light .icon-btn:active { background: rgba(0, 0, 0, 0.06); }
 .msg {
   display: flex;
   flex-direction: column;
-  max-width: 82%;
+  max-width: 92%;
   gap: 4px;
   animation: msgIn 0.2s ease;
 }
@@ -163,7 +171,7 @@ body.light .icon-btn:active { background: rgba(0, 0, 0, 0.06); }
 }
 
 .msg.ai { align-items: flex-start; align-self: flex-start; }
-.msg.user { align-items: flex-end; align-self: flex-end; }
+.msg.user { align-items: flex-end; align-self: flex-end; max-width: 82%; }
 
 .avatar {
   font-size: 20px;
@@ -201,6 +209,122 @@ body.light .icon-btn:active { background: rgba(0, 0, 0, 0.06); }
 }
 
 .msg.error .bubble { color: var(--danger); border-color: rgba(239, 68, 68, 0.3); }
+
+/* ═══════════════════════════════════════════════════════════════
+   [MỚI] KHUNG CODE — tách riêng
+   ═══════════════════════════════════════════════════════════════ */
+
+.code-block {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow-glass);
+  width: 100%;
+  max-width: 100%;
+}
+
+.code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--code-header-bg);
+  border-bottom: 1px solid var(--code-border);
+  font-size: 12px;
+}
+
+.code-lang {
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.code-copy {
+  background: transparent;
+  border: 1px solid var(--code-border);
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  font-family: inherit;
+}
+
+.code-copy svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  pointer-events: none;
+}
+
+.code-copy:active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.code-copy.copied {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.code-content {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--code-text);
+  white-space: pre;
+  tab-size: 4;
+}
+
+.code-content::-webkit-scrollbar { height: 6px; }
+.code-content::-webkit-scrollbar-thumb { background: var(--code-border); border-radius: 6px; }
+
+.code-output {
+  background: var(--code-header-bg);
+  border-top: 1px solid var(--code-border);
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-ai);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.code-output-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.code-output-header svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  color: var(--accent);
+}
 
 /* ═══ INPUT ═══ */
 .input-wrap {
@@ -455,7 +579,7 @@ body.light .icon-btn:active { background: rgba(0, 0, 0, 0.06); }
 
 .menu-item.sub:active { color: var(--text-main); }
 
-/* ═══ [MỚI] ROW — nút bấm + nút X ═══ */
+/* ═══ ROW — nút bấm + nút X ═══ */
 .menu-row {
   display: flex;
   align-items: stretch;
@@ -1000,6 +1124,7 @@ body.light .key-bar { background: rgba(0, 0, 0, 0.08); }
   .input-bar .icon-btn svg { width: 16px; height: 16px; }
   .preview-item { width: 64px; height: 64px; }
   .draw-tool { width: 26px; height: 26px; }
+  .code-content { font-size: 12px; padding: 10px 12px; }
 }
 
 @media (min-width: 768px) {
