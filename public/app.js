@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    🐉 RỒNG THẦN — FRONTEND LOGIC
-   - Thêm nút X xóa project + xóa conversation
-   - Fix nút bấm project/conv
+   - Nút bấm project/conv dùng onclick trực tiếp
+   - CSS flex đảm bảo nút chiếm toàn bộ diện tích
    ═══════════════════════════════════════════════════════════════ */
 
 const API = {
@@ -47,12 +47,6 @@ const SVG_SUN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fil
   <path d="M20 12h2"/>
   <path d="m6.34 17.66-1.41 1.41"/>
   <path d="m19.07 4.93-1.41 1.41"/>
-</svg>`;
-
-const SVG_X = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-  stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-  <line x1="18" y1="6" x2="6" y2="18"/>
-  <line x1="6" y1="6" x2="18" y2="18"/>
 </svg>`;
 
 const $ = (s) => document.querySelector(s);
@@ -449,39 +443,6 @@ async function checkAuthStatus() {
   updateUserMenu();
 }
 
-/* ═══ HELPER — Tạo row cho menu item có nút X ═══ */
-/**
- * Tạo 1 dòng menu-item có nút X bên phải.
- * @param {string} label - Text hiển thị
- * @param {Function} onClick - Hàm khi bấm vào label
- * @param {Function} onDelete - Hàm khi bấm X
- * @param {object} opts - { className }
- */
-function createMenuItemWithDelete(label, onClick, onDelete, opts = {}) {
-  const row = document.createElement('div');
-  row.className = 'menu-item-row';
-
-  const btn = document.createElement('button');
-  btn.className = 'menu-item sub' + (opts.className ? ' ' + opts.className : '');
-  btn.textContent = label;
-  btn.addEventListener('click', onClick);
-
-  const delBtn = document.createElement('button');
-  delBtn.className = 'item-del';
-  delBtn.innerHTML = SVG_X;
-  delBtn.setAttribute('aria-label', 'Xóa');
-  delBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    onDelete();
-  });
-
-  row.appendChild(btn);
-  row.appendChild(delBtn);
-
-  return row;
-}
-
 /* ═══ BRAIN KEYS ═══ */
 function renderKeys(containerEl, keys) {
   containerEl.innerHTML = '';
@@ -596,10 +557,10 @@ async function deleteBrainKey(id) {
 $('#btn-run-left').addEventListener('click', () => addBrainKey('left'));
 $('#btn-run-right').addEventListener('click', () => addBrainKey('right'));
 
-/* ═══ [MỚI] XÓA PROJECT ═══ */
+/* ═══ XÓA PROJECT ═══ */
 async function deleteProject(projectId, projectName = '') {
   if (!projectId) return;
-  if (!confirm(`Xóa dự án "${projectName || 'này'}"? Các cuộc trò chuyện sẽ được gỡ khỏi dự án.`)) return;
+  if (!confirm(`Xóa dự án "${projectName || 'này'}"?`)) return;
 
   try {
     const res = await apiFetch(API.projectDel(projectId), { method: 'DELETE' });
@@ -614,7 +575,7 @@ async function deleteProject(projectId, projectName = '') {
   }
 }
 
-/* ═══ [MỚI] XÓA CONVERSATION ═══ */
+/* ═══ XÓA CONVERSATION ═══ */
 async function deleteConversation(convId, title = '') {
   if (!convId) return;
   if (!confirm(`Xóa cuộc trò chuyện "${title || 'này'}"?`)) return;
@@ -626,7 +587,6 @@ async function deleteConversation(convId, title = '') {
       throw new Error(err.error || `HTTP ${res.status}`);
     }
 
-    // Nếu đang mở conv này → reset
     if (currentConversationId === convId) {
       currentConversationId = null;
       clearChat();
@@ -639,6 +599,47 @@ async function deleteConversation(convId, title = '') {
   } catch (err) {
     showToast('Lỗi xóa: ' + err.message);
   }
+}
+
+/* ═══ TẠO DÒNG MENU CÓ NÚT X ═══ */
+/**
+ * Tạo 1 dòng menu: bấm vào tên → mở, bấm X → xóa.
+ * Dùng onclick trực tiếp, CSS flex đảm bảo bấm được toàn bộ.
+ */
+function createMenuRow(label, onClick, onDelete) {
+  const row = document.createElement('div');
+  row.className = 'menu-row';
+
+  // Nút bấm chính — chiếm toàn bộ phần trái
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'menu-row-btn';
+  btn.textContent = label;
+
+  // Dùng onclick để tránh xung đột với addEventListener
+  btn.onclick = function (ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (typeof onClick === 'function') onClick();
+  };
+
+  // Nút X — bên phải
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'menu-row-del';
+  del.textContent = '✕';
+  del.setAttribute('aria-label', 'Xóa');
+
+  del.onclick = function (ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (typeof onDelete === 'function') onDelete();
+  };
+
+  row.appendChild(btn);
+  row.appendChild(del);
+
+  return row;
 }
 
 /* ═══ RECENT ═══ */
@@ -657,7 +658,7 @@ async function loadRecent() {
     }
 
     items.slice(0, 10).forEach((item) => {
-      const row = createMenuItemWithDelete(
+      const row = createMenuRow(
         item.title || 'Cuộc trò chuyện',
         () => openConversation(item.id),
         () => deleteConversation(item.id, item.title),
@@ -685,7 +686,7 @@ async function loadProjects() {
     }
 
     items.forEach((item) => {
-      const row = createMenuItemWithDelete(
+      const row = createMenuRow(
         item.name || 'Dự án',
         () => openProject(item.id, item.name),
         () => deleteProject(item.id, item.name),
@@ -697,6 +698,7 @@ async function loadProjects() {
   }
 }
 
+/* ═══ MỞ PROJECT — hiện danh sách conv ═══ */
 async function openProject(projectId, projectName = '') {
   try {
     const res = await apiFetch(API.projectConvs(projectId));
@@ -712,9 +714,10 @@ async function openProject(projectId, projectName = '') {
 
     // Nút quay lại
     const backBtn = document.createElement('button');
+    backBtn.type = 'button';
     backBtn.className = 'menu-item sub';
     backBtn.textContent = '← Quay lại gần đây';
-    backBtn.addEventListener('click', () => loadRecent());
+    backBtn.onclick = function () { loadRecent(); };
     list.appendChild(backBtn);
 
     // Tiêu đề dự án
@@ -734,7 +737,7 @@ async function openProject(projectId, projectName = '') {
     }
 
     items.forEach((item) => {
-      const row = createMenuItemWithDelete(
+      const row = createMenuRow(
         item.title || 'Cuộc trò chuyện',
         () => {
           openConversation(item.id);
@@ -1405,7 +1408,7 @@ async function handleVoice(audioBlob) {
   }
 }
 
-/* ═══ DELETE CONVERSATION ═══ */
+/* ═══ DELETE CONVERSATION MODAL ═══ */
 const modalDeleteConv = $('#modal-delete-conv');
 
 $('#delete-conv-cancel').addEventListener('click', () => modalDeleteConv.classList.add('hidden'));

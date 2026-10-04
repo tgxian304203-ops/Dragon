@@ -441,8 +441,6 @@ body.light .icon-btn:active { background: rgba(0, 0, 0, 0.06); }
   transition: background 0.15s ease;
   gap: 8px;
   touch-action: manipulation;
-  position: relative;
-  z-index: 1;
 }
 
 .menu-item:active { background: var(--accent-soft); }
@@ -457,54 +455,64 @@ body.light .icon-btn:active { background: rgba(0, 0, 0, 0.06); }
 
 .menu-item.sub:active { color: var(--text-main); }
 
-/* ═══ [MỚI] ROW CHO PROJECT/CONV — có nút X ═══ */
-.menu-item-row {
+/* ═══ [MỚI] ROW — nút bấm + nút X ═══ */
+.menu-row {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  align-items: stretch;
   width: 100%;
-  position: relative;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
 }
 
-.menu-item-row .menu-item {
+.menu-row-btn {
   flex: 1;
   min-width: 0;
+  text-align: left;
+  padding: 11px 8px 11px 20px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  display: block;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.item-del {
+.menu-row-btn:active {
+  background: var(--accent-soft);
+  color: var(--text-main);
+}
+
+.menu-row-del {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
+  width: 40px;
   background: transparent;
   border: none;
   color: var(--text-muted);
   font-size: 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
   padding: 0;
-  font-family: inherit;
-  touch-action: manipulation;
-  position: relative;
-  z-index: 10;
-  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.item-del:active {
+.menu-row-del:active {
   background: rgba(239, 68, 68, 0.25);
   color: var(--danger);
-  transform: scale(0.9);
 }
 
-.item-del svg {
-  width: 16px;
-  height: 16px;
+.menu-row-del svg {
+  width: 14px;
+  height: 14px;
   display: block;
   pointer-events: none;
 }
@@ -686,7 +694,6 @@ body.light .icon-btn:active { background: rgba(0, 0, 0, 0.06); }
   position: relative;
   z-index: 10;
   touch-action: manipulation;
-  -webkit-tap-highlight-color: rgba(239, 68, 68, 0.3);
   transition: background 0.15s ease, color 0.15s ease;
 }
 
