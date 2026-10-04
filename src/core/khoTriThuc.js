@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    📚 KHO TRI THỨC
-   - searchTIP: search + LỌC NGỮ NGHĨA (không chọn TIP sai chủ đề)
+   - searchTIP: search + LỌC NGỮ NGHĨA
+   - detectLangCan: spck/html/web → HTML (ưu tiên cao nhất)
    - saveTIP: lưu cayQuyetDinhJson
    ═══════════════════════════════════════════════════════════════ */
 
@@ -48,7 +49,8 @@ const SYNONYM_MAP = {
 
   'web': ['trang web', 'website', 'html', 'shop', 'landing', 'spck'],
   'shop': ['cửa hàng', 'bán hàng', 'web bán', 'html shop'],
-  'html': ['web', 'trang web', 'website', 'css', 'js'],
+  'html': ['web', 'trang web', 'website', 'css', 'js', 'spck'],
+  'spck': ['html', 'web', 'trang web', 'app điện thoại'],
 
   '+': ['cộng', 'tổng', 'addition', 'sum', 'plus'],
   '-': ['trừ', 'hiệu', 'subtraction', 'minus'],
@@ -81,35 +83,53 @@ function detectIntent(query) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   [MỚI] DETECT NGÔN NGỮ CẦN TỪ CÂU HỎI
+   [SỬA] DETECT NGÔN NGỮ CẦN
+   - SPCK/HTML/WEB → HTML (ưu tiên cao nhất)
+   - Python CHỈ khi user nói rõ "python"
+   - Không rõ → HTML (vì user hay dùng SPCK)
    ═══════════════════════════════════════════════════════════════ */
 
 function detectLangCan(query) {
   const q = String(query).toLowerCase();
 
-  if (/html|web|shop|trang|landing|spck|css|giao diện|ui\b/.test(q)) return 'html';
-  if (/python|py\b/.test(q)) return 'python';
-  if (/javascript|js\b|node|express/.test(q)) return 'javascript';
-  if (/java\b/.test(q)) return 'java';
-  if (/c\+\+|cpp/.test(q)) return 'cpp';
-  if (/go\b|golang/.test(q)) return 'go';
-  if (/rust/.test(q)) return 'rust';
-  if (/react native/.test(q)) return 'react-native';
-  if (/flutter/.test(q)) return 'flutter';
+  // 1. HTML/WEB — ưu tiên cao nhất (SPCK, shop, web, ui...)
+  if (/\b(spck|html|web|shop|trang web|trang|landing|css|giao diện|\bui\b|frontend|front-end|website|cửa hàng|bán hàng)\b/.test(q)) {
+    return 'html';
+  }
 
-  return null; // Không rõ
+  // 2. Python — CHỈ khi user nói rõ "python" hoặc "py"
+  if (/\bpython\b|\bpy\b/.test(q)) {
+    return 'python';
+  }
+
+  // 3. JavaScript/Node
+  if (/\bjavascript\b|\bjs\b|\bnode\b|express/.test(q)) {
+    return 'javascript';
+  }
+
+  // 4. Ngôn ngữ khác — CHỈ khi user nói rõ
+  if (/\bjava\b/.test(q) && !/javascript/.test(q)) return 'java';
+  if (/c\+\+|cpp/.test(q)) return 'cpp';
+  if (/\bgolang\b/.test(q)) return 'go';
+  if (/\brust\b/.test(q)) return 'rust';
+
+  // 5. Mobile
+  if (/react native/.test(q)) return 'react-native';
+  if (/\bflutter\b/.test(q)) return 'flutter';
+
+  // 6. Không rõ → null (để search lọc tự nhiên)
+  return null;
 }
 
 /**
  * Kiểm logicValue của TIP có khớp ngôn ngữ user cần không.
  */
 function kiemNgonNguKhop(tip, langCan) {
-  if (!langCan) return true; // Nếu user không nói rõ → chấp nhận
+  if (!langCan) return true;
   if (!tip.logicValue) return true;
 
   const tipLang = detectLangFromCode(tip.logicValue);
 
-  // Map alias
   const alias = {
     'html': ['html', 'css'],
     'python': ['python'],
@@ -118,6 +138,8 @@ function kiemNgonNguKhop(tip, langCan) {
     'cpp': ['cpp'],
     'go': ['go'],
     'rust': ['rust'],
+    'react-native': ['javascript'],
+    'flutter': ['dart'],
   };
 
   const accepted = alias[langCan] || [langCan];
@@ -247,7 +269,7 @@ function scoreTIP(tip, ctx) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SEARCH TIP — CÓ LỌC NGỮ NGHĨA
+   SEARCH TIP
    ═══════════════════════════════════════════════════════════════ */
 
 async function searchTIP(query, options = {}) {
@@ -263,9 +285,9 @@ async function searchTIP(query, options = {}) {
   const intent = forcedIntent || detectIntent(query);
   const synonyms = expandSynonyms(tokens);
   const ngrams = extractNgrams(query, 3);
-  const langCan = detectLangCan(query);   // ← [MỚI]
+  const langCan = detectLangCan(query);
 
-  logger.debug(`Search: intent=${intent} tokens=[${tokens.slice(0, 8).join(',')}] langCan=${langCan || 'null'}`);
+  logger.debug(`Search: intent=${intent} langCan=${langCan || 'null'} tokens=[${tokens.slice(0, 8).join(',')}]`);
 
   let candidates = [];
   try {
@@ -285,15 +307,13 @@ async function searchTIP(query, options = {}) {
     let hasCay = false;
     let langKhop = true;
 
-    // Kiểm TIP có cây
     if (tip.cayQuyetDinhJson && Array.isArray(tip.cayQuyetDinhJson.rules) && tip.cayQuyetDinhJson.rules.length > 0) {
       hasCay = true;
     }
 
-    // [MỚI] Kiểm ngôn ngữ TIP có khớp user cần không
     langKhop = kiemNgonNguKhop(tip, langCan);
     if (!langKhop) {
-      score -= 500;   // Phạt cực nặng nếu sai ngôn ngữ
+      score -= 500;
       logger.debug(`❌ TIP ${tip._id} sai ngôn ngữ (TIP=${detectLangFromCode(tip.logicValue)}, cần=${langCan})`);
     }
 
@@ -301,7 +321,6 @@ async function searchTIP(query, options = {}) {
       try {
         const vars = matchPattern(tip.patterns, query);
         if (vars) {
-          // [SỬA] Nếu sai ngôn ngữ → không cộng điểm pattern
           if (!langKhop) {
             logger.debug(`Pattern match TIP ${tip._id} nhưng SAI ngôn ngữ → không cộng điểm`);
           } else {
@@ -309,17 +328,11 @@ async function searchTIP(query, options = {}) {
             patternMatched = true;
             if (vars._fuzzy) {
               score = 100 - 30;
-              logger.debug(`Fuzzy pattern match TIP ${tip._id}: +70`);
-            } else {
-              logger.debug(`Regex pattern match TIP ${tip._id}: +100`);
             }
           }
         } else {
-          if (hasCay) {
-            score -= 20;
-          } else {
-            score -= 200;
-          }
+          if (hasCay) score -= 20;
+          else score -= 200;
         }
       } catch (err) {
         logger.warn(`Pattern check lỗi TIP ${tip._id}: ${err.message}`);
@@ -328,13 +341,7 @@ async function searchTIP(query, options = {}) {
 
     score += scoreTIP(tip, ctx);
 
-    return {
-      ...tip,
-      _score: score,
-      _patternMatched: patternMatched,
-      _hasCay: hasCay,
-      _langKhop: langKhop,
-    };
+    return { ...tip, _score: score, _patternMatched: patternMatched, _hasCay: hasCay, _langKhop: langKhop };
   });
 
   let filtered = scored;
@@ -345,7 +352,7 @@ async function searchTIP(query, options = {}) {
     });
   }
 
-  // [MỚI] Loại TIP sai ngôn ngữ
+  // Loại TIP sai ngôn ngữ
   filtered = filtered.filter((t) => t._langKhop);
 
   filtered.sort((a, b) => b._score - a._score);
