@@ -1,5 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
-   💬 CHAT CONTROLLER — nhận metadata + update project.count
+   💬 CHAT CONTROLLER — nhận metadata + projectId
+   - Hỗ trợ tạo conv trong project
    ═══════════════════════════════════════════════════════════════ */
 
 const Conversation = require('../models/conversation.model');
@@ -21,7 +22,7 @@ async function send(req, res) {
   if (!owner) return res.status(401).json({ error: 'Cần đăng nhập hoặc guest session' });
 
   const {
-    message, conversationId,
+    message, conversationId, projectId,
     hasImage, imageDescription,
     hasVoice,
     hasFile, fileName, fileType, fileText,
@@ -34,13 +35,44 @@ async function send(req, res) {
   let convId = conversationId;
 
   if (!convId) {
+    /* ═══ [MỚI] Kiểm tra projectId nếu có ═══ */
+    let validProjectId = null;
+
+    if (projectId) {
+      if (!validator.isObjectId(projectId)) {
+        return res.status(400).json({ error: 'projectId không hợp lệ' });
+      }
+
+      const projectQuery = { _id: projectId };
+      if (owner.userId) projectQuery.userId = owner.userId;
+      else projectQuery.guestSessionId = owner.guestSessionId;
+
+      const project = await Project.findOne(projectQuery).lean();
+      if (!project) {
+        return res.status(404).json({ error: 'Không tìm thấy dự án' });
+      }
+
+      validProjectId = project._id;
+    }
+
     const title = message.trim().slice(0, 100);
     const conv = await Conversation.create({
       userId: owner.userId,
       guestSessionId: owner.guestSessionId,
+      projectId: validProjectId,
       title,
     });
     convId = conv._id.toString();
+
+    /* ═══ [MỚI] Update conversationCount của project ═══ */
+    if (validProjectId) {
+      const count = await Conversation.countDocuments({ projectId: validProjectId });
+      await Project.updateOne(
+        { _id: validProjectId },
+        { $set: { conversationCount: count } }
+      );
+      logger.info(`Tạo conv mới trong project ${validProjectId}`);
+    }
   } else {
     if (!validator.isObjectId(convId)) {
       return res.status(400).json({ error: 'conversationId không hợp lệ' });
@@ -151,6 +183,7 @@ async function history(req, res) {
       id: conv._id.toString(),
       title: conv.title,
       messageCount: conv.messageCount,
+      projectId: conv.projectId ? conv.projectId.toString() : null,
     },
     messages: messages.reverse().map((m) => ({
       id: m._id.toString(),

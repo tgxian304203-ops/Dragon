@@ -1,7 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
    🐉 RỒNG THẦN — FRONTEND LOGIC
-   - Nút bấm project/conv dùng onclick trực tiếp
-   - CSS flex đảm bảo nút chiếm toàn bộ diện tích
+   - Voice: giữ mic để ghi, thả tay dừng → text vào ô input
+   - Project: lưu currentProjectId khi mở dự án
+   - Nút bấm project dùng onclick trực tiếp
    ═══════════════════════════════════════════════════════════════ */
 
 const API = {
@@ -78,6 +79,7 @@ let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
 let currentConversationId = null;
+let currentProjectId = null;
 let authMode = 'login';
 let isLoggedIn = false;
 
@@ -300,6 +302,11 @@ async function sendMessage(overrideText, metadata = null) {
       conversationId: currentConversationId,
     };
 
+    /* ═══ [MỚI] Gửi projectId nếu đang trong dự án ═══ */
+    if (currentProjectId && !currentConversationId) {
+      body.projectId = currentProjectId;
+    }
+
     const hasImage = uploadedItems.some((u) => u.type === 'image');
     const hasFile = uploadedItems.some((u) => u.type === 'file');
 
@@ -346,7 +353,13 @@ async function sendMessage(overrideText, metadata = null) {
 
     pendingMsg.remove();
     appendMessage('ai', data.reply || '(không có nội dung)');
-    loadRecent();
+
+    /* ═══ Reload: nếu đang trong dự án → load lại project; nếu không → load recent ═══ */
+    if (currentProjectId) {
+      await loadProjectConvs(currentProjectId);
+    } else {
+      await loadRecent();
+    }
   } catch (err) {
     pendingMsg.remove();
     appendMessage('ai', '⚠️ Lỗi: ' + (err.message || 'không xác định'), { error: true });
@@ -569,6 +582,15 @@ async function deleteProject(projectId, projectName = '') {
       throw new Error(err.error || `HTTP ${res.status}`);
     }
     showToast('Đã xóa dự án');
+
+    if (currentProjectId === projectId) {
+      currentProjectId = null;
+      currentConversationId = null;
+      clearChat();
+      clearAttachments();
+      appendMessage('ai', CHAO_AI);
+    }
+
     await loadProjects();
   } catch (err) {
     showToast('Lỗi xóa dự án: ' + err.message);
@@ -595,35 +617,33 @@ async function deleteConversation(convId, title = '') {
     }
 
     showToast('Đã xóa cuộc trò chuyện');
-    await loadRecent();
+
+    if (currentProjectId) {
+      await loadProjectConvs(currentProjectId);
+    } else {
+      await loadRecent();
+    }
   } catch (err) {
     showToast('Lỗi xóa: ' + err.message);
   }
 }
 
 /* ═══ TẠO DÒNG MENU CÓ NÚT X ═══ */
-/**
- * Tạo 1 dòng menu: bấm vào tên → mở, bấm X → xóa.
- * Dùng onclick trực tiếp, CSS flex đảm bảo bấm được toàn bộ.
- */
 function createMenuRow(label, onClick, onDelete) {
   const row = document.createElement('div');
   row.className = 'menu-row';
 
-  // Nút bấm chính — chiếm toàn bộ phần trái
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'menu-row-btn';
   btn.textContent = label;
 
-  // Dùng onclick để tránh xung đột với addEventListener
   btn.onclick = function (ev) {
     ev.preventDefault();
     ev.stopPropagation();
     if (typeof onClick === 'function') onClick();
   };
 
-  // Nút X — bên phải
   const del = document.createElement('button');
   del.type = 'button';
   del.className = 'menu-row-del';
@@ -645,6 +665,8 @@ function createMenuRow(label, onClick, onDelete) {
 /* ═══ RECENT ═══ */
 async function loadRecent() {
   const list = $('#recent-list');
+  currentProjectId = null;
+
   try {
     const res = await apiFetch(API.recentList);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -698,8 +720,18 @@ async function loadProjects() {
   }
 }
 
-/* ═══ MỞ PROJECT — hiện danh sách conv ═══ */
+/* ═══ MỞ PROJECT ═══ */
 async function openProject(projectId, projectName = '') {
+  currentProjectId = projectId;
+  currentConversationId = null;
+  clearChat();
+  clearAttachments();
+  appendMessage('ai', CHAO_AI);
+
+  await loadProjectConvs(projectId, projectName);
+}
+
+async function loadProjectConvs(projectId, projectName = '') {
   try {
     const res = await apiFetch(API.projectConvs(projectId));
     if (!res.ok) {
@@ -712,7 +744,6 @@ async function openProject(projectId, projectName = '') {
     const list = $('#recent-list');
     list.innerHTML = '';
 
-    // Nút quay lại
     const backBtn = document.createElement('button');
     backBtn.type = 'button';
     backBtn.className = 'menu-item sub';
@@ -720,7 +751,6 @@ async function openProject(projectId, projectName = '') {
     backBtn.onclick = function () { loadRecent(); };
     list.appendChild(backBtn);
 
-    // Tiêu đề dự án
     const titleEl = document.createElement('div');
     titleEl.className = 'menu-empty';
     titleEl.style.fontStyle = 'normal';
@@ -731,7 +761,7 @@ async function openProject(projectId, projectName = '') {
     if (items.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'menu-empty';
-      empty.textContent = 'Dự án chưa có cuộc trò chuyện';
+      empty.textContent = 'Chưa có cuộc trò chuyện — gõ tin nhắn để tạo';
       list.appendChild(empty);
       return;
     }
@@ -759,6 +789,12 @@ async function openConversation(id) {
     const data = await res.json();
 
     currentConversationId = id;
+
+    /* Nếu conv thuộc project → giữ currentProjectId */
+    if (data.conversation && data.conversation.projectId) {
+      currentProjectId = data.conversation.projectId;
+    }
+
     clearChat();
 
     (data.messages || []).forEach((m) => {
@@ -774,6 +810,7 @@ async function openConversation(id) {
 /* ═══ NEW CHAT ═══ */
 $('#btn-new-chat').addEventListener('click', () => {
   currentConversationId = null;
+  currentProjectId = null;
   clearChat();
   clearAttachments();
   appendMessage('ai', CHAO_AI);
@@ -1089,6 +1126,123 @@ fileInputFile.addEventListener('change', () => {
   fileInputFile.value = '';
 });
 
+/* ═══════════════════════════════════════════════════════════════
+   VOICE — GIỮ MIC ĐỂ GHI, THẢ TAY DỪNG
+   ═══════════════════════════════════════════════════════════════ */
+
+let voiceStartTime = 0;
+let isVoiceProcessing = false;
+
+function startVoiceRecording(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  if (isRecording || isVoiceProcessing) return;
+
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
+    showToast('Trình duyệt không hỗ trợ ghi âm');
+    return;
+  }
+
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then((stream) => {
+      audioChunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+
+      mediaRecorder.ondataavailable = (ev) => {
+        if (ev.data.size > 0) audioChunks.push(ev.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        await handleVoiceToText(audioBlob);
+      };
+
+      mediaRecorder.start();
+      isRecording = true;
+      voiceStartTime = Date.now();
+      btnMic.classList.add('recording');
+    })
+    .catch((err) => {
+      showToast('Không truy cập được mic: ' + err.message);
+    });
+}
+
+function stopVoiceRecording(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  if (!isRecording) return;
+
+  // Nếu ghi < 0.5 giây → bỏ qua
+  const duration = Date.now() - voiceStartTime;
+  if (duration < 500) {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+    isRecording = false;
+    btnMic.classList.remove('recording');
+    audioChunks = [];
+    return;
+  }
+
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+  isRecording = false;
+  btnMic.classList.remove('recording');
+}
+
+async function handleVoiceToText(audioBlob) {
+  if (!audioBlob || audioBlob.size === 0) return;
+
+  isVoiceProcessing = true;
+  btnMic.classList.add('recording');
+
+  try {
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'voice.webm');
+
+    const res = await apiFetch(API.voiceSend, { method: 'POST', body: formData });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    if (data.text && data.text.trim()) {
+      // Điền text vào ô input — KHÔNG tự gửi
+      const existing = msgInput.value.trim();
+      msgInput.value = existing ? existing + ' ' + data.text.trim() : data.text.trim();
+      autoResize();
+      msgInput.focus();
+    } else {
+      showToast('Không nhận diện được giọng nói');
+    }
+  } catch (err) {
+    showToast('Lỗi voice: ' + err.message);
+  } finally {
+    isVoiceProcessing = false;
+    btnMic.classList.remove('recording');
+  }
+}
+
+/* Gắn sự kiện pointer — press-and-hold */
+btnMic.addEventListener('pointerdown', startVoiceRecording);
+btnMic.addEventListener('pointerup', stopVoiceRecording);
+btnMic.addEventListener('pointercancel', stopVoiceRecording);
+btnMic.addEventListener('pointerleave', stopVoiceRecording);
+
+/* Chặn context menu khi giữ mic (mobile) */
+btnMic.addEventListener('contextmenu', (e) => e.preventDefault());
+
 /* ═══ MODAL VẼ ẢNH ═══ */
 const modalDraw = $('#modal-draw');
 const drawCanvas = $('#draw-canvas');
@@ -1333,80 +1487,6 @@ drawDone.addEventListener('click', () => {
     showToast('Đã lưu ảnh vẽ');
   }, 'image/png');
 });
-
-/* ═══ VOICE ═══ */
-btnMic.addEventListener('click', toggleRecording);
-
-async function toggleRecording() {
-  if (isRecording) { stopRecording(); return; }
-
-  if (!navigator.mediaDevices || !window.MediaRecorder) {
-    showToast('Trình duyệt không hỗ trợ ghi âm');
-    return;
-  }
-
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioChunks = [];
-    mediaRecorder = new MediaRecorder(stream);
-
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data.size > 0) audioChunks.push(e.data);
-    };
-
-    mediaRecorder.onstop = async () => {
-      stream.getTracks().forEach((t) => t.stop());
-      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-      await handleVoice(audioBlob);
-    };
-
-    mediaRecorder.start();
-    isRecording = true;
-    btnMic.classList.add('recording');
-
-    setTimeout(() => {
-      if (isRecording) {
-        stopRecording();
-        showToast('Đã đạt 60 giây tối đa — tự dừng');
-      }
-    }, 60000);
-  } catch (err) {
-    showToast('Không truy cập được mic: ' + err.message);
-  }
-}
-
-function stopRecording() {
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
-  isRecording = false;
-  btnMic.classList.remove('recording');
-}
-
-async function handleVoice(audioBlob) {
-  const formData = new FormData();
-  formData.append('audio', audioBlob, 'voice.webm');
-
-  const pendingMsg = appendMessage('ai', 'Đang nghe', { pending: true });
-
-  try {
-    const res = await apiFetch(API.voiceSend, { method: 'POST', body: formData });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${res.status}`);
-    }
-
-    const data = await res.json();
-    pendingMsg.remove();
-
-    if (data.text) {
-      await sendMessage(data.text, { hasVoice: true });
-    } else {
-      appendMessage('ai', 'Không nhận diện được', { error: true });
-    }
-  } catch (err) {
-    pendingMsg.remove();
-    appendMessage('ai', '⚠️ Lỗi voice: ' + err.message, { error: true });
-  }
-}
 
 /* ═══ DELETE CONVERSATION MODAL ═══ */
 const modalDeleteConv = $('#modal-delete-conv');
