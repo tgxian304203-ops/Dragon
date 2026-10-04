@@ -28,7 +28,6 @@
 
   <div class="input-wrap" id="input-wrap">
 
-    <!-- Khung preview ảnh/file đã chọn — không có logo -->
     <div class="preview-area hidden" id="preview-area">
       <div class="preview-list" id="preview-list"></div>
     </div>
@@ -94,10 +93,8 @@
     </div>
 
     <div class="menu-group">
-      <!-- Đổi logo theme — SVG mặt trăng khi tối, SVG mặt trời khi sáng -->
       <button class="menu-item" id="btn-theme">
         <span class="theme-icon" id="theme-icon">
-          <!-- Logo mặc định: mặt trăng (chế độ tối) -->
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
@@ -111,7 +108,6 @@
     <div class="menu-group">
       <button class="menu-item" id="btn-user-toggle">🥷🏿 Người dùng <span class="chev">▾</span></button>
       <div class="user-sub hidden" id="user-sub">
-        <!-- Nút sẽ được ẩn/hiện động bằng JS -->
         <button class="menu-item sub" id="btn-login">Đăng nhập</button>
         <button class="menu-item sub" id="btn-register">Đăng ký</button>
         <button class="menu-item sub" id="btn-guest">Chế độ khách</button>
@@ -220,12 +216,34 @@
   </div>
 </div>
 
-<!-- MODAL: ATTACH -->
+<!-- MODAL: ATTACH — logo SVG -->
 <div id="modal-attach" class="modal hidden">
   <div class="modal-card">
     <h3 class="modal-title">📎 Đính kèm</h3>
-    <button class="menu-item" id="attach-choose-image">🖼️ Chọn ảnh</button>
-    <button class="menu-item" id="attach-choose-file">📁 Chọn file</button>
+
+    <button class="menu-item attach-option" id="attach-choose-image">
+      <span class="attach-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+          <circle cx="8.5" cy="8.5" r="1.5"/>
+          <polyline points="21 15 16 10 5 21"/>
+        </svg>
+      </span>
+      <span>Chọn ảnh</span>
+    </button>
+
+    <button class="menu-item attach-option" id="attach-choose-file">
+      <span class="attach-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+          <polyline points="13 2 13 9 20 9"/>
+        </svg>
+      </span>
+      <span>Chọn file</span>
+    </button>
+
     <div class="modal-actions">
       <button class="btn-secondary" id="attach-close">Hủy</button>
     </div>
@@ -248,7 +266,13 @@
 <div id="modal-draw" class="modal modal-fullscreen hidden">
   <div class="draw-wrap">
     <header class="draw-header">
-      <button class="icon-btn" id="draw-cancel" aria-label="Hủy">✕</button>
+      <button class="icon-btn" id="draw-cancel" aria-label="Hủy">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
       <div class="draw-tools">
         <button class="draw-tool active" data-color="#ef4444" style="background:#ef4444" aria-label="Đỏ"></button>
         <button class="draw-tool" data-color="#f59e0b" style="background:#f59e0b" aria-label="Cam"></button>
@@ -257,8 +281,26 @@
         <button class="draw-tool" data-color="#ffffff" style="background:#ffffff" aria-label="Trắng"></button>
         <button class="draw-tool" data-color="#000000" style="background:#000000" aria-label="Đen"></button>
       </div>
-      <button class="icon-btn" id="draw-undo" aria-label="Hoàn tác">↶</button>
-      <button class="icon-btn draw-done" id="draw-done" aria-label="Xong">✓</button>
+      <button class="icon-btn" id="draw-eraser" aria-label="Tẩy">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 20H7L3 16a2 2 0 0 1 0-3L13 3a2 2 0 0 1 3 0l5 5a2 2 0 0 1 0 3L11 21"/>
+          <line x1="16" y1="20" x2="21" y2="15"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="draw-undo" aria-label="Hoàn tác">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7v6h6"/>
+          <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+        </svg>
+      </button>
+      <button class="icon-btn draw-done" id="draw-done" aria-label="Xong">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </button>
     </header>
     <div class="draw-canvas-wrap">
       <canvas id="draw-canvas"></canvas>

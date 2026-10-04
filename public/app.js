@@ -1,8 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
    🐉 RỒNG THẦN — FRONTEND LOGIC
-   - Logo theme SVG: mặt trăng (tối) ↔ mặt trời (sáng)
-   - Menu Người dùng theo trạng thái đăng nhập
-   - Preview ảnh/file + vẽ tay
+   - Canvas vẽ dùng Pointer Events — chạy mọi thiết bị
+   - Lưu ảnh gốc để vẽ lại đúng
+   - Nút tẩy xóa hết nét
    ═══════════════════════════════════════════════════════════════ */
 
 const API = {
@@ -31,7 +31,6 @@ const API = {
 
 const CHAO_AI = 'Nói điều ước đi 🔥🐉';
 
-/* ═══ SVG LOGO ═══ */
 const SVG_MOON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
   stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
@@ -80,11 +79,8 @@ let audioChunks = [];
 let isRecording = false;
 let currentConversationId = null;
 let authMode = 'login';
-
-/* Trạng thái đăng nhập */
 let isLoggedIn = false;
 
-/* Hàng chờ đính kèm */
 let pendingAttachments = [];
 let attachmentIdCounter = 0;
 
@@ -95,7 +91,6 @@ function setGuestToken(t) {
   else localStorage.removeItem('rongthan_guest_token');
 }
 
-/* ═══ FETCH HELPER ═══ */
 async function apiFetch(url, options = {}) {
   const headers = { ...(options.headers || {}) };
   const guestToken = getGuestToken();
@@ -162,7 +157,7 @@ function appendMessage(role, text, opts = {}) {
 
 function clearChat() { chatMessages.innerHTML = ''; }
 
-/* ═══ PREVIEW — ảnh/file ═══ */
+/* ═══ PREVIEW ═══ */
 function renderPreview() {
   previewList.innerHTML = '';
 
@@ -419,9 +414,6 @@ btnUserToggle.addEventListener('click', () => {
   btnUserToggle.classList.toggle('active');
 });
 
-/**
- * Cập nhật hiển thị menu Người dùng theo trạng thái đăng nhập.
- */
 function updateUserMenu() {
   const btnLogin = $('#btn-login');
   const btnRegister = $('#btn-register');
@@ -429,13 +421,11 @@ function updateUserMenu() {
   const btnLogout = $('#btn-logout');
 
   if (isLoggedIn) {
-    // Đã đăng nhập → chỉ hiện Đăng xuất
     btnLogin.classList.add('hidden');
     btnRegister.classList.add('hidden');
     btnGuest.classList.add('hidden');
     btnLogout.classList.remove('hidden');
   } else {
-    // Chưa đăng nhập / khách → hiện Đăng nhập + Đăng ký + Khách, ẩn Đăng xuất
     btnLogin.classList.remove('hidden');
     btnRegister.classList.remove('hidden');
     btnGuest.classList.remove('hidden');
@@ -443,17 +433,10 @@ function updateUserMenu() {
   }
 }
 
-/**
- * Kiểm tra trạng thái đăng nhập từ server.
- */
 async function checkAuthStatus() {
   try {
     const res = await apiFetch(API.authMe);
-    if (res.ok) {
-      isLoggedIn = true;
-    } else {
-      isLoggedIn = false;
-    }
+    isLoggedIn = res.ok;
   } catch {
     isLoggedIn = false;
   }
@@ -890,13 +873,11 @@ function openAuthModal() {
   authUsername.focus();
 }
 
-/* Nút Đăng nhập */
 $('#btn-login').addEventListener('click', () => {
   authMode = 'login';
   openAuthModal();
 });
 
-/* Nút Đăng ký */
 $('#btn-register').addEventListener('click', () => {
   authMode = 'register';
   openAuthModal();
@@ -1019,36 +1000,51 @@ fileInputFile.addEventListener('change', () => {
   fileInputFile.value = '';
 });
 
-/* ═══ MODAL VẼ ẢNH ═══ */
+/* ═══════════════════════════════════════════════════════════════
+   MODAL VẼ ẢNH — DÙNG POINTER EVENTS
+   ═══════════════════════════════════════════════════════════════ */
+
 const modalDraw = $('#modal-draw');
 const drawCanvas = $('#draw-canvas');
 const drawUndo = $('#draw-undo');
+const drawEraser = $('#draw-eraser');
 const drawDone = $('#draw-done');
 const drawCancel = $('#draw-cancel');
 const drawTools = document.querySelectorAll('.draw-tool');
 
-let drawing = false;
-let currentColor = '#ef4444';
+let canvasCtx = null;
 let currentAttachmentId = null;
+let currentColor = '#ef4444';
+let isEraser = false;
+let currentImage = null;
 let strokes = [];
 let currentStroke = null;
-let canvasCtx = null;
+let isDrawing = false;
 
+/* Mở modal vẽ */
 function openDrawModal(attachmentId) {
   const att = pendingAttachments.find((a) => a.id === attachmentId);
   if (!att || att.type !== 'image') return;
 
   currentAttachmentId = attachmentId;
+  strokes = [];
+  currentStroke = null;
+  isEraser = false;
+  isDrawing = false;
+  drawEraser.classList.remove('active');
 
   const img = new Image();
+  img.crossOrigin = 'anonymous';
   img.onload = () => {
+    currentImage = img;
+
     const wrap = drawCanvas.parentElement;
     const wrapW = wrap.clientWidth;
     const wrapH = wrap.clientHeight;
     const ratio = Math.min(wrapW / img.width, wrapH / img.height);
 
-    const w = Math.floor(img.width * ratio);
-    const h = Math.floor(img.height * ratio);
+    const w = Math.max(1, Math.floor(img.width * ratio));
+    const h = Math.max(1, Math.floor(img.height * ratio));
 
     drawCanvas.width = w;
     drawCanvas.height = h;
@@ -1058,27 +1054,32 @@ function openDrawModal(attachmentId) {
     canvasCtx = drawCanvas.getContext('2d');
     canvasCtx.lineCap = 'round';
     canvasCtx.lineJoin = 'round';
-    canvasCtx.lineWidth = Math.max(3, Math.round(w / 100));
 
-    canvasCtx.drawImage(img, 0, 0, w, h);
-
-    strokes = [];
-    currentStroke = null;
-
+    redrawAll();
     modalDraw.classList.remove('hidden');
+  };
+  img.onerror = () => {
+    showToast('Không tải được ảnh');
   };
   img.src = att.previewUrl;
 }
 
-function redrawCanvas(img) {
-  if (!canvasCtx) return;
+/* Vẽ lại ảnh gốc + tất cả nét */
+function redrawAll() {
+  if (!canvasCtx || !currentImage) return;
+
   canvasCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-  if (img) canvasCtx.drawImage(img, 0, 0, drawCanvas.width, drawCanvas.height);
+  canvasCtx.drawImage(currentImage, 0, 0, drawCanvas.width, drawCanvas.height);
+
+  canvasCtx.lineCap = 'round';
+  canvasCtx.lineJoin = 'round';
 
   for (const stroke of strokes) {
     if (stroke.points.length < 2) continue;
     canvasCtx.strokeStyle = stroke.color;
     canvasCtx.lineWidth = stroke.width;
+    canvasCtx.globalCompositeOperation = stroke.eraser ? 'destination-out' : 'source-over';
+
     canvasCtx.beginPath();
     canvasCtx.moveTo(stroke.points[0].x, stroke.points[0].y);
     for (let i = 1; i < stroke.points.length; i++) {
@@ -1086,89 +1087,135 @@ function redrawCanvas(img) {
     }
     canvasCtx.stroke();
   }
+
+  canvasCtx.globalCompositeOperation = 'source-over';
 }
 
+/* Vẽ 1 nét trực tiếp (không cần redraw toàn bộ) */
+function drawStrokeSegment(stroke, fromIdx) {
+  if (!canvasCtx) return;
+  const pts = stroke.points;
+  if (pts.length < 2) return;
+
+  canvasCtx.strokeStyle = stroke.color;
+  canvasCtx.lineWidth = stroke.width;
+  canvasCtx.globalCompositeOperation = stroke.eraser ? 'destination-out' : 'source-over';
+
+  canvasCtx.beginPath();
+  const start = Math.max(0, fromIdx);
+  canvasCtx.moveTo(pts[start].x, pts[start].y);
+  for (let i = start + 1; i < pts.length; i++) {
+    canvasCtx.lineTo(pts[i].x, pts[i].y);
+  }
+  canvasCtx.stroke();
+
+  canvasCtx.globalCompositeOperation = 'source-over';
+}
+
+/* Lấy vị trí trong canvas */
 function getCanvasPos(e) {
   const rect = drawCanvas.getBoundingClientRect();
-  const touch = e.touches ? e.touches[0] : e;
   return {
-    x: (touch.clientX - rect.left) * (drawCanvas.width / rect.width),
-    y: (touch.clientY - rect.top) * (drawCanvas.height / rect.height),
+    x: (e.clientX - rect.left) * (drawCanvas.width / rect.width),
+    y: (e.clientY - rect.top) * (drawCanvas.height / rect.height),
   };
 }
 
-function startDraw(e) {
+/* Pointer handlers */
+function onPointerDown(e) {
+  if (!canvasCtx) return;
   e.preventDefault();
-  drawing = true;
+
+  drawCanvas.setPointerCapture(e.pointerId);
+
+  isDrawing = true;
   const pos = getCanvasPos(e);
+
+  const baseWidth = Math.max(3, Math.round(drawCanvas.width / 100));
+  const width = isEraser ? baseWidth * 3 : baseWidth;
+
   currentStroke = {
-    color: currentColor,
-    width: canvasCtx.lineWidth,
+    color: isEraser ? '#000000' : currentColor,
+    width,
+    eraser: isEraser,
     points: [pos],
   };
   strokes.push(currentStroke);
 }
 
-function moveDraw(e) {
-  if (!drawing || !currentStroke) return;
+function onPointerMove(e) {
+  if (!isDrawing || !currentStroke) return;
   e.preventDefault();
+
   const pos = getCanvasPos(e);
+  const prevLen = currentStroke.points.length;
   currentStroke.points.push(pos);
 
-  const pts = currentStroke.points;
-  if (pts.length >= 2) {
-    canvasCtx.strokeStyle = currentStroke.color;
-    canvasCtx.lineWidth = currentStroke.width;
-    canvasCtx.beginPath();
-    canvasCtx.moveTo(pts[pts.length - 2].x, pts[pts.length - 2].y);
-    canvasCtx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-    canvasCtx.stroke();
-  }
+  drawStrokeSegment(currentStroke, prevLen - 1);
 }
 
-function endDraw(e) {
-  if (e) e.preventDefault();
-  drawing = false;
+function onPointerUp(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  isDrawing = false;
   currentStroke = null;
 }
 
-drawCanvas.addEventListener('mousedown', startDraw);
-drawCanvas.addEventListener('mousemove', moveDraw);
-drawCanvas.addEventListener('mouseup', endDraw);
-drawCanvas.addEventListener('mouseleave', endDraw);
-drawCanvas.addEventListener('touchstart', startDraw, { passive: false });
-drawCanvas.addEventListener('touchmove', moveDraw, { passive: false });
-drawCanvas.addEventListener('touchend', endDraw);
-drawCanvas.addEventListener('touchcancel', endDraw);
+drawCanvas.addEventListener('pointerdown', onPointerDown);
+drawCanvas.addEventListener('pointermove', onPointerMove);
+drawCanvas.addEventListener('pointerup', onPointerUp);
+drawCanvas.addEventListener('pointercancel', onPointerUp);
+drawCanvas.addEventListener('pointerleave', onPointerUp);
 
+/* Chọn màu */
 drawTools.forEach((tool) => {
   tool.addEventListener('click', () => {
     drawTools.forEach((t) => t.classList.remove('active'));
     tool.classList.add('active');
     currentColor = tool.dataset.color || '#ef4444';
+    isEraser = false;
+    drawEraser.classList.remove('active');
   });
 });
 
+/* Nút tẩy */
+drawEraser.addEventListener('click', () => {
+  isEraser = !isEraser;
+  drawEraser.classList.toggle('active', isEraser);
+  if (isEraser) {
+    drawTools.forEach((t) => t.classList.remove('active'));
+  } else {
+    // Khi tắt tẩy → chọn lại màu đỏ mặc định
+    const firstTool = document.querySelector('.draw-tool');
+    if (firstTool) {
+      firstTool.classList.add('active');
+      currentColor = firstTool.dataset.color || '#ef4444';
+    }
+  }
+});
+
+/* Undo — xóa nét cuối */
 drawUndo.addEventListener('click', () => {
   if (strokes.length === 0) return;
   strokes.pop();
-
-  const att = pendingAttachments.find((a) => a.id === currentAttachmentId);
-  if (!att) return;
-
-  const img = new Image();
-  img.onload = () => redrawCanvas(img);
-  img.src = att.previewUrl;
+  redrawAll();
 });
 
+/* Hủy — không lưu */
 drawCancel.addEventListener('click', () => {
   modalDraw.classList.add('hidden');
   currentAttachmentId = null;
   strokes = [];
+  currentStroke = null;
+  isDrawing = false;
 });
 
+/* Xong — xuất canvas thành blob */
 drawDone.addEventListener('click', () => {
-  if (!currentAttachmentId) return;
+  if (!currentAttachmentId || !canvasCtx) return;
+
+  // Vẽ nền trắng để tránh PNG trong suốt (nếu cần)
+  // Nhưng giữ nguyên ảnh gốc → không cần nền trắng
 
   drawCanvas.toBlob((blob) => {
     if (!blob) {
@@ -1177,10 +1224,14 @@ drawDone.addEventListener('click', () => {
     }
 
     const idx = pendingAttachments.findIndex((a) => a.id === currentAttachmentId);
-    if (idx === -1) return;
+    if (idx === -1) {
+      showToast('Không tìm thấy ảnh');
+      return;
+    }
 
     const oldItem = pendingAttachments[idx];
-    const newFile = new File([blob], oldItem.file.name || 'image.png', { type: 'image/png' });
+    const newFileName = (oldItem.file.name || 'image').replace(/\.[^.]+$/, '') + '-edited.png';
+    const newFile = new File([blob], newFileName, { type: 'image/png' });
 
     if (oldItem.previewUrl) URL.revokeObjectURL(oldItem.previewUrl);
 
@@ -1197,6 +1248,9 @@ drawDone.addEventListener('click', () => {
     modalDraw.classList.add('hidden');
     currentAttachmentId = null;
     strokes = [];
+    currentStroke = null;
+    currentImage = null;
+    isDrawing = false;
     showToast('Đã lưu ảnh vẽ');
   }, 'image/png');
 });

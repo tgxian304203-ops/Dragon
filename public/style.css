@@ -452,6 +452,28 @@ body.light .icon-btn:active { background: rgba(0, 0, 0, 0.06); }
 
 .menu-item.sub:active { color: var(--text-main); }
 
+/* ═══ ATTACH MODAL — option với icon SVG ═══ */
+.attach-option {
+  justify-content: flex-start;
+  gap: 12px;
+}
+
+.attach-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.attach-icon svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
 .chev { font-size: 11px; transition: transform 0.2s ease; }
 .menu-item.active .chev { transform: rotate(180deg); }
 
@@ -801,7 +823,7 @@ body.light .key-bar { background: rgba(0, 0, 0, 0.08); }
 .draw-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   padding: 10px 12px;
   padding-top: calc(10px + env(safe-area-inset-top));
   background: rgba(28, 28, 30, 0.85);
@@ -824,8 +846,8 @@ body.light .key-bar { background: rgba(0, 0, 0, 0.08); }
 }
 
 .draw-tool {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.3);
   cursor: pointer;
@@ -842,13 +864,25 @@ body.light .key-bar { background: rgba(0, 0, 0, 0.08); }
 
 .draw-tool:active { transform: scale(0.9); }
 
-.draw-done {
-  background: var(--accent);
-  color: #0a0e1a;
-  font-weight: 700;
+.draw-header .icon-btn {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
 }
 
-.draw-done:active { background: #4ade80; }
+.draw-header .icon-btn svg { width: 18px; height: 18px; }
+
+.draw-header #draw-eraser.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.draw-done {
+  background: var(--accent) !important;
+  color: #0a0e1a !important;
+}
+
+.draw-done:active { background: #4ade80 !important; }
 
 .draw-canvas-wrap {
   flex: 1;
@@ -898,7 +932,7 @@ body.light .key-bar { background: rgba(0, 0, 0, 0.08); }
   .input-bar .icon-btn { width: 34px; height: 34px; }
   .input-bar .icon-btn svg { width: 16px; height: 16px; }
   .preview-item { width: 64px; height: 64px; }
-  .draw-tool { width: 28px; height: 28px; }
+  .draw-tool { width: 26px; height: 26px; }
 }
 
 @media (min-width: 768px) {
