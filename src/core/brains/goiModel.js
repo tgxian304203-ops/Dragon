@@ -4,6 +4,8 @@
    - Tier 1: dùng hết model mạnh nhất xuyên provider
    - Hết tier 1 → tier 2 → ... → tier 5
    - Tự bắt model chết (404 / decommissioned) → blacklist
+   - Gemini/OpenRouter: tăng counter request
+   - Groq: cập nhật quota từ header
    ═══════════════════════════════════════════════════════════════ */
 
 const BrainKey = require('../../models/brainKey.model');
@@ -56,9 +58,6 @@ async function ensureModels(side, key) {
   }
 }
 
-/**
- * Nhận diện lỗi model đã chết (decommissioned / not found).
- */
 function isModelDeadError(status, message) {
   if (status === 404) return true;
   if (status === 400 && /decommission|not found|invalid model|model.*not.*exist/i.test(message || '')) {
@@ -101,7 +100,7 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
     key._models = await ensureModels(side, key);
   }
 
-  /* ═══ BƯỚC 3 — Gộp model pool: { modelId → [{key, provider, tier}] } ═══ */
+  /* ═══ BƯỚC 3 — Gộp model pool ═══ */
   const modelPool = new Map();
 
   for (const key of keys) {
@@ -130,7 +129,7 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
   }
 
   /* ═══ BƯỚC 4 — Group model theo TIER ═══ */
-  const tierGroups = new Map(); // tier → [modelId]
+  const tierGroups = new Map();
 
   for (const modelId of modelPool.keys()) {
     const tier = getTier(modelId);
@@ -150,16 +149,12 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
   /* ═══ BƯỚC 5 — Loop từng TIER ═══ */
   for (const tier of sortedTiers) {
     const modelsInTier = tierGroups.get(tier);
-
-    // Sort model trong tier theo alphabet để ổn định
     modelsInTier.sort();
 
     logger.debug(`📍 Tier ${tier} — ${modelsInTier.length} model: ${modelsInTier.join(', ')}`);
 
     for (const modelId of modelsInTier) {
       const keyCandidates = modelPool.get(modelId) || [];
-
-      // Sort key theo quota (khỏe trước)
       keyCandidates.sort((a, b) => b.quota - a.quota);
 
       logger.debug(
@@ -189,8 +184,15 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
             options
           );
 
-          if (result.rateLimit) {
-            await quotaTracker.updateQuota(cand.keyId, result.rateLimit);
+          // Cập nhật quota theo provider
+          if (cand.provider === 'groq') {
+            // Groq: đọc header rate limit
+            if (result.rateLimit) {
+              await quotaTracker.updateQuota(cand.keyId, result.rateLimit);
+            }
+          } else if (cand.provider === 'gemini' || cand.provider === 'openrouter') {
+            // Gemini/OpenRouter: tăng counter
+            await quotaTracker.tangRequest(cand.keyId, cand.provider);
           }
 
           logger.success(`✅ Gọi OK: ${cand.provider}/${modelId} (T${tier})`);
@@ -204,9 +206,7 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
           };
         } catch (err) {
           const status = err.status;
-          logger.warn(
-            `❌ Lỗi ${cand.provider}/${modelId}: ${err.message}`
-          );
+          logger.warn(`❌ Lỗi ${cand.provider}/${modelId}: ${err.message}`);
           lastErrors.push(`${cand.provider}/${modelId}: ${err.message}`);
 
           // 404 / decommissioned — model chết
@@ -232,7 +232,7 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
             continue;
           }
 
-          // 400 khác (context_length, params) → thử key tiếp
+          // 400 khác — thử key tiếp
           continue;
         }
       }

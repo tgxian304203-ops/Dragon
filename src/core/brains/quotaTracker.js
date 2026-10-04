@@ -1,23 +1,26 @@
 /* ═══════════════════════════════════════════════════════════════
    📊 QUOTA TRACKER
    
-   CƠ CHẾ RESET THỰC TẾ (theo tài liệu provider):
-   - Groq: RPM reset 60s, RPD reset nửa đêm UTC
-   - Gemini: RPM reset 60s, RPD reset nửa đêm PT
-   - OpenRouter: RPM reset 60s, RPD reset nửa đêm UTC
-   
-   → TTL dùng chung 60 giây (RPM reset).
-   → Nếu hết RPD → gọi lại sau 60s vẫn 429 → markExhausted lại → nghỉ tiếp.
+   CƠ CHẾ RESET THỰC TẾ:
+   - Groq: đọc header x-ratelimit-* (RPD reset midnight UTC)
+   - Gemini: tự đếm, 1.500 RPD, reset midnight PT
+   - OpenRouter: tự đếm, 50 RPD, reset midnight UTC
    ═══════════════════════════════════════════════════════════════ */
 
 const BrainKey = require('../../models/brainKey.model');
 const logger = require('../../utils/logger');
 
-// TTL reset quota — tất cả provider reset RPM sau 60 giây
+// Limit RPD cho provider không có header
+const RPD_LIMIT = {
+  gemini: 1500,
+  openrouter: 50,
+};
+
+// TTL reset theo provider (ms) — dùng cho Gemini/OpenRouter
 const QUOTA_RESET_TTL = {
-  gemini: 60 * 1000,
+  gemini: 24 * 60 * 60 * 1000,
   groq: 60 * 1000,
-  openrouter: 60 * 1000,
+  openrouter: 24 * 60 * 60 * 1000,
 };
 
 function normalizeRateLimit(rateLimit) {
@@ -63,20 +66,74 @@ async function markExhausted(keyId) {
 }
 
 /**
+ * Tăng request counter cho Gemini/OpenRouter.
+ * Reset nếu đã qua ngày mới.
+ */
+async function tangRequest(keyId, provider) {
+  try {
+    const key = await BrainKey.findById(keyId).lean();
+    if (!key) return;
+
+    const now = Date.now();
+    const resetAt = key.requestsResetAt ? new Date(key.requestsResetAt).getTime() : 0;
+
+    // Reset counter nếu qua ngày mới
+    if (now >= resetAt) {
+      await BrainKey.updateOne(
+        { _id: keyId },
+        { $set: { requestsToday: 1, requestsResetAt: new Date(now + QUOTA_RESET_TTL[provider]) } }
+      );
+      return;
+    }
+
+    await BrainKey.updateOne(
+      { _id: keyId },
+      { $inc: { requestsToday: 1 } }
+    );
+  } catch (err) {
+    logger.error(`Lỗi tăng request key ${keyId}:`, err.message);
+  }
+}
+
+/**
+ * Tính quota từ bộ đếm (Gemini/OpenRouter).
+ */
+function tinhQuotaTuDem(key) {
+  if (!key) return 100;
+
+  const provider = key.provider || 'gemini';
+  const limit = RPD_LIMIT[provider] || 1500;
+
+  const now = Date.now();
+  const resetAt = key.requestsResetAt ? new Date(key.requestsResetAt).getTime() : 0;
+
+  // Qua ngày mới → reset về 100%
+  if (now >= resetAt) return 100;
+
+  const used = key.requestsToday || 0;
+  const remaining = Math.max(0, limit - used);
+  return Math.round((remaining / limit) * 100);
+}
+
+/**
  * Trả quota hiệu dụng có xét TTL reset.
- * - quotaPercent > 0 → trả nguyên
- * - quotaPercent = 0 nhưng đã qua TTL (60s) → coi như hồi 100%
- * - quotaPercent = 0 và chưa đủ TTL → 0
  */
 function layQuotaHieuDung(key) {
   if (!key) return 0;
 
+  const provider = key.provider || 'groq';
+
+  // Gemini/OpenRouter → tính từ bộ đếm
+  if (provider === 'gemini' || provider === 'openrouter') {
+    return tinhQuotaTuDem(key);
+  }
+
+  // Groq → đọc quotaPercent (đã cập nhật từ header)
   const rawPercent = typeof key.quotaPercent === 'number' ? key.quotaPercent : 100;
   if (rawPercent > 0) return rawPercent;
 
-  const provider = key.provider || 'groq';
-  const ttl = QUOTA_RESET_TTL[provider] || QUOTA_RESET_TTL.groq;
-
+  // Groq hết quota → xét TTL 60s
+  const ttl = QUOTA_RESET_TTL.groq;
   const updatedAt = key.quotaUpdatedAt ? new Date(key.quotaUpdatedAt).getTime() : 0;
   const now = Date.now();
 
@@ -87,18 +144,28 @@ function layQuotaHieuDung(key) {
 }
 
 /**
- * Số ms còn phải chờ để key hồi quota (nếu đang 0%).
- * Trả 0 nếu key không cần chờ.
+ * Số ms còn phải chờ (cho UI).
  */
 function tinhConLaiMs(key) {
   if (!key) return 0;
 
+  const provider = key.provider || 'groq';
+
+  // Gemini/OpenRouter → không chờ, chỉ đếm theo ngày
+  if (provider === 'gemini' || provider === 'openrouter') {
+    const now = Date.now();
+    const resetAt = key.requestsResetAt ? new Date(key.requestsResetAt).getTime() : 0;
+    if (now < resetAt && tinhQuotaTuDem(key) === 0) {
+      return resetAt - now;
+    }
+    return 0;
+  }
+
+  // Groq → chờ nếu quota 0
   const rawPercent = typeof key.quotaPercent === 'number' ? key.quotaPercent : 100;
   if (rawPercent > 0) return 0;
 
-  const provider = key.provider || 'groq';
-  const ttl = QUOTA_RESET_TTL[provider] || QUOTA_RESET_TTL.groq;
-
+  const ttl = QUOTA_RESET_TTL.groq;
   const updatedAt = key.quotaUpdatedAt ? new Date(key.quotaUpdatedAt).getTime() : 0;
   if (!updatedAt) return 0;
 
@@ -109,7 +176,10 @@ function tinhConLaiMs(key) {
 module.exports = {
   updateQuota,
   markExhausted,
+  tangRequest,
+  tinhQuotaTuDem,
   layQuotaHieuDung,
   tinhConLaiMs,
   QUOTA_RESET_TTL,
+  RPD_LIMIT,
 };

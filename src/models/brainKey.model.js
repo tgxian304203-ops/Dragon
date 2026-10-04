@@ -1,5 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    🔑 BRAIN KEY — Kho 1 (NT1, NP1, MR7, MR9)
+   - Thêm requestsToday + requestsResetAt cho Gemini/OpenRouter
    ═══════════════════════════════════════════════════════════════ */
 
 const mongoose = require('mongoose');
@@ -18,6 +19,10 @@ const brainKeySchema = new mongoose.Schema(
     availableModels: { type: [String], default: [] },
     quotaPercent: { type: Number, default: 100, min: 0, max: 100 },
     quotaUpdatedAt: { type: Date, default: Date.now },
+
+    // Đếm request cho Gemini + OpenRouter (không có header)
+    requestsToday: { type: Number, default: 0 },
+    requestsResetAt: { type: Date, default: Date.now },
   },
   { timestamps: true, collection: 'brain_keys' }
 );

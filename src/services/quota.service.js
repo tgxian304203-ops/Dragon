@@ -1,8 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
    📊 QUOTA SERVICE
    - Trả danh sách key cho UI menu phải
-   - Dùng layQuotaHieuDung để khớp với logic não (goiModel.js)
-   - Trả thêm conLaiMs + status cho UI hiển thị trạng thái
+   - Groq: dùng layQuotaHieuDung (đọc quotaPercent từ header)
+   - Gemini/OpenRouter: dùng tinhQuotaTuDem (đếm request)
    ═══════════════════════════════════════════════════════════════ */
 
 const BrainKey = require('../models/brainKey.model');
@@ -32,6 +32,7 @@ async function getKeysBySide(side, userId, guestSessionId) {
       quotaPercent: quotaHieuDung,
       quotaPercentRaw: k.quotaPercent ?? 100,
       quotaUpdatedAt: k.quotaUpdatedAt,
+      requestsToday: k.requestsToday || 0,
       conLaiMs,
       status,
       modelCount: (k.availableModels || []).length,
