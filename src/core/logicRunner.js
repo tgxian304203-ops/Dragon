@@ -3,7 +3,9 @@
    - Normalize mạnh, fuzzy match
    - Nhánh expr: mathjs | Nhánh code/patch: Judge0
    - HTML/CSS: KHÔNG chạy Judge0
-   - [MỚI] chayCayQuyetDinh — Tiểu não tư duy từ cây JSON
+   - chayCayQuyetDinh — Tiểu não tư duy từ cây JSON
+   - [SỬA] evalCondition whitelist đầy đủ (", ', <, >, =, &, |)
+   - [SỬA] mathjs xử lý biến undefined (sum động)
    ═══════════════════════════════════════════════════════════════ */
 
 const { evaluate } = require('mathjs');
@@ -11,7 +13,7 @@ const { testCode } = require('./judge0Test');
 const logger = require('../utils/logger');
 
 /* ═══════════════════════════════════════════════════════════════
-   STOPWORDS + SPELL FIX (giữ nguyên)
+   STOPWORDS + SPELL FIX
    ═══════════════════════════════════════════════════════════════ */
 
 const STOPWORDS = new Set([
@@ -113,6 +115,7 @@ function patternToRegex(pattern) {
   let s = String(pattern).replace(/\s+/g, ' ').trim();
   s = s.replace(/\{a\}/g, '\u0001NUM\u0001').replace(/\{b\}/g, '\u0001NUM\u0001')
     .replace(/\{c\}/g, '\u0001NUM\u0001').replace(/\{d\}/g, '\u0001NUM\u0001')
+    .replace(/\{e\}/g, '\u0001NUM\u0001')
     .replace(/\{n\}/g, '\u0001NUM\u0001')
     .replace(/\{name\}/g, '\u0001STR\u0001')
     .replace(/\{code\}/g, '\u0001CODE\u0001').replace(/\{error\}/g, '\u0001CODE\u0001')
@@ -144,7 +147,7 @@ function tryRegexMatch(pattern, query) {
 
 function tryFuzzyMatch(pattern, query) {
   const cleanPattern = pattern
-    .replace(/\{a\}|\{b\}|\{c\}|\{d\}|\{n\}/g, 'NUM')
+    .replace(/\{a\}|\{b\}|\{c\}|\{d\}|\{e\}|\{n\}/g, 'NUM')
     .replace(/\{name\}/g, 'STR')
     .replace(/\{code\}|\{error\}|\{text\}/g, 'CODE')
     .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -216,7 +219,7 @@ function isRunnableLang(lang) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   [MỚI] EXTRACT BIẾN TỪ CÂU HỎI THEO CATEGORY
+   EXTRACT BIẾN TỪ CÂU HỎI THEO CATEGORY
    ═══════════════════════════════════════════════════════════════ */
 
 function extractNumbers(problem) {
@@ -251,13 +254,7 @@ function extractVarsMath(problem) {
 
 function extractVarsCode(problem) {
   const q = String(problem).toLowerCase();
-  const vars = {
-    ngonNgu: '',
-    loai: '',
-    tenHam: '',
-    thamSo: '',
-    mucDich: '',
-  };
+  const vars = { ngonNgu: '', loai: '', tenHam: '', thamSo: '', mucDich: '' };
 
   if (/python|py\b/.test(q)) vars.ngonNgu = 'python';
   else if (/javascript|js\b|node/.test(q)) vars.ngonNgu = 'javascript';
@@ -293,7 +290,6 @@ function extractVarsBugfix(problem) {
   if (m) vars.dongLoi = Number(m[1]);
 
   vars.noiDungLoi = problem.slice(0, 200);
-
   return vars;
 }
 
@@ -314,7 +310,6 @@ function extractVarsExplain(problem) {
   else vars.giongVan = 'thân mật';
 
   vars.chuDe = problem.slice(0, 100);
-
   return vars;
 }
 
@@ -329,14 +324,9 @@ function extractVarsTheoCategory(problem, category) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   [MỚI] EVAL ĐIỀU KIỆN — WHITELIST AN TOÀN
+   [SỬA] EVAL ĐIỀU KIỆN — WHITELIST ĐẦY ĐỦ
    ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Đánh giá điều kiện "if" của rule với vars.
- * Chỉ cho phép phép toán so sánh + logic + số học đơn giản.
- * KHÔNG cho phép gọi hàm, truy cập object, hay từ khóa nguy hiểm.
- */
 function evalCondition(condition, vars) {
   if (typeof condition !== 'string' || condition.trim() === '') return false;
 
@@ -361,14 +351,14 @@ function evalCondition(condition, vars) {
     expr = expr.replace(re, valStr);
   }
 
-  // Whitelist ký tự an toàn
-  const safeChars = /^[\s\d+\-*/%().<>=!&|'"a-zA-Z_,]+$/;
+  // [SỬA] Whitelist ĐẦY ĐỦ — cho phép ", ', <, >, =, !, &, |, space, số, chữ, _ và toán tử
+  const safeChars = /^[\s\d+\-*/%().<>=!&|'"a-zA-Z_,;]+$/;
   if (!safeChars.test(expr)) {
     logger.warn(`evalCondition: ký tự không an toàn — "${expr}"`);
     return false;
   }
 
-  // Blacklist chuỗi nguy hiểm sau thay biến
+  // Blacklist sau thay biến
   if (/\b(eval|Function|require|import|process|global|window|document|fs|child_process|__proto__|constructor|prototype)\b/i.test(expr)) {
     logger.warn(`evalCondition: sau thay biến có từ nguy hiểm — "${expr}"`);
     return false;
@@ -385,7 +375,47 @@ function evalCondition(condition, vars) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   [MỚI] CHẠY CÂY QUYẾT ĐỊNH — Tiểu não tư duy
+   [SỬA] MATHJS — Xử lý biến undefined (sum động)
+   ═══════════════════════════════════════════════════════════════ */
+
+/**
+ * Thay thế sum([a,b,c,...]) bằng danh sách biến có giá trị thực.
+ * VD: logicValue = "sum([a,b,c,d,e,f,g,h])"
+ *     vars = {a:1, b:2, c:3, d:4, e:5}  (không có f,g,h)
+ * → "sum([1,2,3,4,5])"
+ */
+function fixDynamicSum(logicValue, scope) {
+  // Match sum([...])
+  return String(logicValue).replace(/sum\s*\(\s*\[([^\]]+)\]\s*\)/gi, (match, inner) => {
+    const names = inner.split(',').map((s) => s.trim()).filter(Boolean);
+    const validNames = names.filter((n) => typeof scope[n] === 'number' && Number.isFinite(scope[n]));
+    if (validNames.length === 0) return '0';
+    return `sum([${validNames.map((n) => scope[n]).join(',')}])`;
+  });
+}
+
+/**
+ * Thay các biến chưa định nghĩa trong biểu thức bằng 0 để tránh lỗi mathjs.
+ * Chỉ áp dụng cho các chữ cái đơn (a-h) — an toàn.
+ */
+function safeEvalMathjs(logicValue, scope) {
+  // Bước 1: Fix sum động
+  let expr = fixDynamicSum(logicValue, scope);
+
+  // Bước 2: Thay các biến đơn chưa có bằng 0
+  const singleLetters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  for (const letter of singleLetters) {
+    if (typeof scope[letter] !== 'number') {
+      const re = new RegExp(`\\b${letter}\\b`, 'g');
+      expr = expr.replace(re, '0');
+    }
+  }
+
+  return expr;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CHẠY CÂY QUYẾT ĐỊNH — Tiểu não tư duy
    ═══════════════════════════════════════════════════════════════ */
 
 async function chayCayQuyetDinh({ tip, problem }) {
@@ -395,16 +425,14 @@ async function chayCayQuyetDinh({ tip, problem }) {
 
   const cay = tip.cayQuyetDinhJson;
   const category = cay.category || tip.category || 'general';
-
-  // Extract biến theo category
   const vars = extractVarsTheoCategory(problem, category);
+
   logger.debug(`🌳 Cây quyết định [${category}] — vars: ${JSON.stringify(vars).slice(0, 200)}`);
 
   if (!Array.isArray(cay.rules) || cay.rules.length === 0) {
     return { success: false, error: 'Cây không có rules' };
   }
 
-  // Loop rules → rule nào match đầu tiên thì chạy
   for (const rule of cay.rules) {
     try {
       const matched = evalCondition(rule.if, vars);
@@ -417,32 +445,26 @@ async function chayCayQuyetDinh({ tip, problem }) {
       const logicValue = then.logicValue || '';
       const outputTpl = then.outputTpl || '';
 
-      // Chạy logic
       const result = await chayLogicVoiVars({
         logicType, logicValue, outputTpl, vars, problem,
       });
 
-      if (result.success) return result;
+      if (result.success) return { ...result, vars };
       logger.warn(`Rule match nhưng chạy logic lỗi: ${result.error}`);
     } catch (err) {
       logger.warn(`Rule lỗi "${rule.if}": ${err.message}`);
     }
   }
 
-  // Fallback
   logger.debug(`Không rule nào match — thử fallback cây`);
   return { success: false, error: 'Không rule nào match', vars };
 }
 
-/**
- * Chạy logic với vars (dùng chung cho rule match).
- */
 async function chayLogicVoiVars({ logicType, logicValue, outputTpl, vars, problem }) {
   if (!logicType) {
-    // Text thuần — format output
     if (outputTpl) {
       const formatted = formatOutputTpl(outputTpl, vars, '');
-      return { success: true, kq: formatted, output: '', isText: true };
+      return { success: true, kq: formatted, output: '', isText: true, formatted };
     }
     return { success: false, error: 'Không có logicType và outputTpl' };
   }
@@ -454,9 +476,19 @@ async function chayLogicVoiVars({ logicType, logicValue, outputTpl, vars, proble
       for (const [k, v] of Object.entries(vars)) {
         if (typeof v === 'number') scope[k] = v;
       }
-      const kq = evaluate(logicValue, scope);
+
+      // [SỬA] Dùng safeEvalMathjs để xử lý biến undefined
+      const exprSafe = safeEvalMathjs(logicValue, scope);
+
+      // Tạo scope mới chỉ chứa biến có giá trị
+      const scopeSafe = {};
+      for (const [k, v] of Object.entries(scope)) {
+        if (Number.isFinite(v)) scopeSafe[k] = v;
+      }
+
+      const kq = evaluate(exprSafe, scopeSafe);
       const formatted = formatOutputTpl(outputTpl || '{kq}', vars, kq);
-      return { success: true, kq: formatted, output: '', kqRaw: kq, isExpr: true };
+      return { success: true, kq: formatted, output: '', kqRaw: kq, isExpr: true, formatted };
     } catch (err) {
       return { success: false, error: `mathjs: ${err.message}` };
     }
@@ -514,7 +546,7 @@ function formatOutputTpl(tpl, vars, kq) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   RUN LOGIC — Nhánh A/B/C cũ (giữ nguyên)
+   RUN LOGIC — Nhánh A/B/C cũ
    ═══════════════════════════════════════════════════════════════ */
 
 async function runLogic({ logicType, logicValue, vars }) {
@@ -525,7 +557,14 @@ async function runLogic({ logicType, logicValue, vars }) {
     try {
       const scope = {};
       for (const [k, v] of Object.entries(vars || {})) scope[k] = parseNum(v);
-      const kq = evaluate(logicValue, scope);
+
+      const exprSafe = safeEvalMathjs(logicValue, scope);
+      const scopeSafe = {};
+      for (const [k, v] of Object.entries(scope)) {
+        if (Number.isFinite(v)) scopeSafe[k] = v;
+      }
+
+      const kq = evaluate(exprSafe, scopeSafe);
       return { success: true, kq };
     } catch (err) {
       logger.warn(`Logic expr lỗi: ${err.message}`);
@@ -568,9 +607,8 @@ module.exports = {
   normalizeQuery, detectLangFromCode, isRunnableLang, parseNum,
   levenshtein, similarity, fuzzyEqual, removeDiacritics, fixSpelling,
   STOPWORDS, SPELL_FIX,
-  // [MỚI]
   chayCayQuyetDinh, chayLogicVoiVars, evalCondition,
   extractVarsTheoCategory, extractVarsMath, extractVarsCode,
   extractVarsBugfix, extractVarsExplain, extractNumbers,
-  formatOutputTpl,
+  formatOutputTpl, fixDynamicSum, safeEvalMathjs,
 };
