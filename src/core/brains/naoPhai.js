@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 NÃO PHẢI — Verify TIP
-   - [MỚI] Kiểm rules ≥ 100 + không lạc chủ đề
+   - [SỬA] Ngưỡng rules ≥ 95 (thay vì 100) — tránh loop không cần
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
@@ -18,7 +18,7 @@ const FIELDS_14 = [
 ];
 
 const MAX_JSON_RETRY = 3;
-const MIN_RULES = 100;
+const MIN_RULES = 95;   // [SỬA] Hạ từ 100 → 95
 
 function sanitizeJsonText(text) {
   if (!text || typeof text !== 'string') return '';
@@ -113,7 +113,7 @@ function verifyLogicTypeForIntent(tip, originalProblem) {
   const lt = tip.logicType || '';
 
   if (isMath && !isCode) {
-    if (lt !== 'expr') return { ok: false, reason: `Câu hỏi toán nhưng logicType="${lt}" — phải là "expr"` };
+    if (lt !== 'expr') return { ok: false, reason: `Câu hỏi toán nhưng logicType="${lt}"` };
   }
 
   if (isCode && !isBugfix) {
@@ -127,9 +127,6 @@ function verifyLogicTypeForIntent(tip, originalProblem) {
   return { ok: true };
 }
 
-/**
- * [MỚI] Verify cây quyết định có đủ rules + không lạc chủ đề.
- */
 function verifyCayQuyetDinh(tip) {
   const cay = tip.cayQuyetDinhJson;
   if (!cay) return { ok: false, reason: 'Thiếu cayQuyetDinhJson', severity: 'high' };
@@ -142,7 +139,6 @@ function verifyCayQuyetDinh(tip) {
     return { ok: false, reason: `Cây có ${cay.rules.length} rules < ${MIN_RULES} tối thiểu`, severity: 'high' };
   }
 
-  // Kiểm rules có hợp lệ không
   let invalidRules = 0;
   for (const r of cay.rules) {
     if (!r.if || !r.then || typeof r.then !== 'object') invalidRules++;
@@ -222,7 +218,6 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
 
   const issues = [];
 
-  /* BƯỚC 1 — Pattern match câu gốc */
   const patternCheck = verifyPattern(tip, originalProblem);
   if (originalProblem && Array.isArray(tip.patterns) && tip.patterns.length > 0) {
     if (!patternCheck.matched) {
@@ -231,28 +226,24 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
     }
   }
 
-  /* BƯỚC 2 — LogicType khớp intent */
   const logicCheck = verifyLogicTypeForIntent(tip, originalProblem);
   if (!logicCheck.ok) {
     logger.warn(`⚠️ Não phải: logicType không phù hợp — ${logicCheck.reason}`);
     issues.push({ field: 'logicType', problem: logicCheck.reason, severity: 'high' });
   }
 
-  /* BƯỚC 3 — [MỚI] Verify cây quyết định */
   const cayCheck = verifyCayQuyetDinh(tip);
   if (!cayCheck.ok) {
     logger.warn(`⚠️ Não phải: cây không hợp lệ — ${cayCheck.reason}`);
     issues.push({ field: 'cayQuyetDinhJson', problem: cayCheck.reason, severity: cayCheck.severity });
   }
 
-  /* BƯỚC 4 — Chạy tests */
   const testResult = runTests(tip);
   if (!testResult.allPass) {
     const failed = testResult.results.filter((r) => !r.pass);
     issues.push({ field: 'logicValue', problem: `Test fail`, severity: 'high' });
   }
 
-  /* BƯỚC 5 — Có issue high → fail + needSupplement */
   const highIssues = issues.filter((i) => i.severity === 'high');
 
   if (highIssues.length > 0) {
@@ -276,7 +267,6 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
     };
   }
 
-  /* BƯỚC 6 — Gọi model verify ngữ nghĩa */
   const userMessage = naoPhaiPrompt.buildUserMessage({ tip, originalProblem });
   const messages = [
     { role: 'system', content: naoPhaiPrompt.SYSTEM_PROMPT },
@@ -287,7 +277,6 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
 
   const { evaluation, meta } = await goiPhaiVaParse({ owner, messages, tempKeys, label: '🧠 Não phải' });
 
-  /* BƯỚC 7 — Web verify nếu cần */
   if (evaluation.needWebSearch && evaluation.searchQuery) {
     try {
       const searchResult = await webSearch(evaluation.searchQuery);

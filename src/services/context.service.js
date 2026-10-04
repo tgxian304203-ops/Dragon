@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 CONTEXT SERVICE
-   - Lưu/đọc Context + mở rộng (intentHistory, userProfileSnapshot)
+   - Lưu/đọc Context + mở rộng
+   - [SỬA] Dùng findOneAndUpdate — tránh version conflict
    ═══════════════════════════════════════════════════════════════ */
 
 const Context = require('../models/context.model');
@@ -13,9 +14,6 @@ const FIELDS_14 = [
   'quanHe', 'nguonPhienBan',
 ];
 
-/**
- * Lấy context gần nhất của conversation.
- */
 async function getContext(conversationId) {
   if (!conversationId) return null;
   try {
@@ -27,7 +25,7 @@ async function getContext(conversationId) {
 }
 
 /**
- * Lưu/cập nhật context.
+ * [SỬA] Dùng findOneAndUpdate để tránh version conflict.
  */
 async function saveContext(data) {
   if (!data || !data.conversationId) {
@@ -36,8 +34,6 @@ async function saveContext(data) {
   }
 
   try {
-    const existing = await Context.findOne({ conversationId: data.conversationId });
-
     const payload = {};
     for (const field of FIELDS_14) {
       if (data[field] !== undefined) payload[field] = data[field];
@@ -48,19 +44,20 @@ async function saveContext(data) {
     if (data.userProfileSnapshot !== undefined) payload.userProfileSnapshot = data.userProfileSnapshot;
     if (data.extendedContext !== undefined) payload.extendedContext = data.extendedContext;
 
-    if (existing) {
-      Object.assign(existing, payload);
-      await existing.save();
-      return existing.toObject();
-    }
+    const result = await Context.findOneAndUpdate(
+      { conversationId: data.conversationId },
+      {
+        $set: {
+          ...payload,
+          userId: data.userId || null,
+          guestSessionId: data.guestSessionId || null,
+        },
+        $setOnInsert: { conversationId: data.conversationId },
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true, lean: true }
+    );
 
-    const ctx = await Context.create({
-      conversationId: data.conversationId,
-      userId: data.userId || null,
-      guestSessionId: data.guestSessionId || null,
-      ...payload,
-    });
-    return ctx.toObject();
+    return result;
   } catch (err) {
     logger.warn(`saveContext lỗi: ${err.message}`);
     return null;
@@ -68,20 +65,25 @@ async function saveContext(data) {
 }
 
 /**
- * [MỚI] Ghi intent vào lịch sử (giữ tối đa 50 phần tử).
+ * Ghi intent vào lịch sử (giữ tối đa 50 phần tử).
+ * Dùng atomic $push + $slice để tránh version conflict.
  */
 async function pushIntent(conversationId, intent) {
   if (!conversationId || !intent) return null;
   try {
-    const ctx = await Context.findOne({ conversationId });
-    if (!ctx) return null;
-
-    const history = Array.isArray(ctx.intentHistory) ? ctx.intentHistory : [];
-    history.push(intent);
-    ctx.intentHistory = history.slice(-50);
-
-    await ctx.save();
-    return ctx.intentHistory;
+    const result = await Context.findOneAndUpdate(
+      { conversationId },
+      {
+        $push: {
+          intentHistory: {
+            $each: [intent],
+            $slice: -50,
+          },
+        },
+      },
+      { new: true, lean: true }
+    );
+    return result?.intentHistory || null;
   } catch (err) {
     logger.warn(`pushIntent lỗi: ${err.message}`);
     return null;
