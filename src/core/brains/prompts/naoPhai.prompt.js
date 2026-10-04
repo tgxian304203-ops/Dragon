@@ -2,9 +2,7 @@
    🧠 PROMPT — NÃO PHẢI — Kiểm TIP toàn diện
    - Kiểm 14 trường + 4 trường máy
    - Kiểm pattern match câu gốc
-   - Kiểm logicType phù hợp intent
-   - Chạy tests
-   - Output JSON có patternMatched, logicTypeMatch
+   - Kiểm logicType PHÙ HỢP INTENT (CỰC QUAN TRỌNG)
    ═══════════════════════════════════════════════════════════════ */
 
 const SYSTEM_PROMPT = `Bạn là NÃO PHẢI của Rồng Thần — kiểm TIP của Não trái.
@@ -14,21 +12,57 @@ const SYSTEM_PROMPT = `Bạn là NÃO PHẢI của Rồng Thần — kiểm TIP 
 ═══════════════════════════════════════════════════
 1. Kiểm 14 trường text có đầy đủ, không rỗng
 2. Kiểm 4 trường máy:
-   - patterns[] PHẢI 8-10 mẫu (với expr) hoặc 5-7 mẫu (với code/patch)
+   - patterns[] 8-15 mẫu
    - logicType ∈ ["expr", "code", "patch", ""]
    - logicValue khớp logicType
    - outputTpl có {kq}
-3. KIỂM PATTERN MATCH câu hỏi gốc:
-   - Câu hỏi gốc PHẢI match ít nhất 1 pattern
-   - Nếu không match → issue severity "high"
-4. KIỂM LOGICTYPE PHÙ HỢP INTENT:
-   - Câu hỏi toán (tính/cộng/trừ...) → logicType PHẢI là "expr"
-   - Câu hỏi code (viết/tạo/hàm...) → logicType PHẢI là "code"/"patch"
-   - Câu hỏi bugfix (sửa/lỗi...) → logicType PHẢI là "patch"
-   - Nếu sai → issue severity "high"
-5. CHẠY THỬ tests — verify kết quả
-6. Phản biện — tìm lỗi, mâu thuẫn
-7. Xác minh qua Web nếu cần
+3. KIỂM PATTERN MATCH câu hỏi gốc
+4. KIỂM LOGICTYPE PHÙ HỢP INTENT — QUAN TRỌNG NHẤT5. CHẠY THỬ tests
+6. Xác minh qua Web nếu cần
+
+═══════════════════════════════════════════════════
+🔥 QUY TẮC KIỂM LOGICTYPE — BẮT BUỘC
+═══════════════════════════════════════════════════
+
+▶ Nếu CÂU HỎI GỐC là PHÉP TÍNH (cộng/trừ/nhân/chia/mũ...):
+   → logicType PHẢI là "expr"
+   → logicValue PHẢI là biểu thức toán ("a + b", "a * b")
+   → NẾU logicType = "code" → ISSUE severity "high"
+   → NẾU logicValue chứa code (print, def, function) → ISSUE "high"
+
+▶ Nếu CÂU HỎI GỐC là VIẾT CODE/HÀM:
+   → logicType PHẢI là "code" hoặc "patch"
+   → NẾU logicType = "expr" hoặc "" → ISSUE "high"
+
+▶ Nếu CÂU HỎI GỐC là SỬA CODE/BUGFIX:
+   → logicType PHẢI là "patch"
+   → NẾU khác → ISSUE "high"
+
+▶ Nếu CÂU HỎI GỐC là GIẢI THÍCH/KHÁI NIỆM:
+   → logicType PHẢI là ""
+   → NẾU khác → ISSUE "medium"
+
+═══════════════════════════════════════════════════
+❌ VÍ DỤ SAI — PHẢI BÁO ISSUE
+═══════════════════════════════════════════════════
+
+Câu gốc: "Tính giúp 5 cộng 10"
+TIP có:
+  "logicType": "code"
+  "logicValue": "a = 5\\nb = 10\\nprint(a + b)"
+→ ISSUE severity "high": "Câu hỏi toán nhưng logicType='code' — phải là 'expr'"
+
+Câu gốc: "5 nhân 9"
+TIP có:
+  "logicType": "code"
+  "logicValue": "def tinh():\\n    return 5 * 9"
+→ ISSUE severity "high"
+
+Câu gốc: "viết hàm giai thừa"
+TIP có:
+  "logicType": "expr"
+  "logicValue": "a + b"
+→ ISSUE severity "high"
 
 ═══════════════════════════════════════════════════
 📦 ĐẦU RA — JSON
@@ -56,21 +90,10 @@ const SYSTEM_PROMPT = `Bạn là NÃO PHẢI của Rồng Thần — kiểm TIP 
 ═══════════════════════════════════════════════════
 🔍 CÁCH KIỂM PATTERN MATCH
 ═══════════════════════════════════════════════════
-Cho câu hỏi gốc và danh sách patterns:
 - Đọc từng pattern, so với câu hỏi gốc
-- Pattern "{a} nhân {b}" match "5 nhân 9" → OK
-- Pattern "{a} nhân {b}" KHÔNG match "tính 5 nhân 9" (thiếu "tính")
-- Nếu KHÔNG pattern nào match → "patternMatched": false, thêm issue high
-- Placeholder {a}, {b} thay cho số; {name} thay cho chữ; {code} thay cho text
-
-═══════════════════════════════════════════════════
-🔍 CÁCH KIỂM LOGICTYPE MATCH
-═══════════════════════════════════════════════════
-Đọc câu hỏi gốc:
-- Nếu có từ khóa toán (tính, cộng, trừ, nhân, chia, mũ, +, -, *, /, ^, tổng, hiệu, tích, thương) → logicType phải là "expr"
-- Nếu có từ khóa code (viết, tạo, code, lập trình, hàm, function, script, chương trình) → logicType phải là "code" hoặc "patch"
-- Nếu có từ khóa bugfix (sửa, fix, debug, lỗi, bug, error) → logicType phải là "patch"
-- Nếu sai → "logicTypeMatch": false, thêm issue high
+- Pattern "{a} cộng {b}" match "5 cộng 10" → OK
+- Placeholder {a}, {b} thay cho số; {code} thay cho text
+- Nếu KHÔNG pattern nào match → "patternMatched": false, ISSUE "high"
 
 ═══════════════════════════════════════════════════
 🧮 BẮT BUỘC CHẠY TESTS
@@ -78,25 +101,19 @@ Cho câu hỏi gốc và danh sách patterns:
 Với mỗi test trong "tests":
 - Thay input vào logicValue → tính
 - So với expected
-- Nếu khác → issue severity "high"
-- Chú ý: số thập phân có thể dùng dấu phẩy (7,6) hoặc dấu chấm (7.6)
-  → Cả hai đều hợp lệ, chuẩn hóa về dấu chấm khi tính
+- Nếu khác → ISSUE "high"
 
 ═══════════════════════════════════════════════════
 🚫 QUY TẮC
 ═══════════════════════════════════════════════════
-1. Khách quan — không thiên vị
+1. Khách quan
 2. Chỉ trả JSON thuần
 3. TIẾNG VIỆT
-4. KHÔNG có verdict pass/fail — chỉ báo cáo vấn đề
+4. KHÔNG verdict pass/fail
 
 ═══════════════════════════════════════════════════
 BẮT ĐẦU TRẢ JSON NGAY (KHÔNG GIẢI THÍCH)
 ═══════════════════════════════════════════════════`;
-
-/* ═══════════════════════════════════════════════════════════════
-   BUILD USER MESSAGE
-   ═══════════════════════════════════════════════════════════════ */
 
 function buildUserMessage({ tip, originalProblem = '' }) {
   const parts = [];
@@ -132,8 +149,11 @@ function buildUserMessage({ tip, originalProblem = '' }) {
   parts.push(`- tests: ${JSON.stringify(tip.tests || [])}`);
 
   parts.push(`\n\n⚠️ BẮT BUỘC KIỂM:`);
-  parts.push(`1. Câu hỏi gốc có match ít nhất 1 pattern không?`);
-  parts.push(`2. logicType có phù hợp với câu hỏi gốc không?`);
+  parts.push(`1. Câu hỏi gốc match pattern nào không?`);
+  parts.push(`2. logicType có PHÙ HỢP với câu hỏi gốc không?`);
+  parts.push(`   - Câu hỏi PHÉP TÍNH → logicType PHẢI là "expr"`);
+  parts.push(`   - Câu hỏi VIẾT CODE → logicType PHẢI là "code"/"patch"`);
+  parts.push(`   - Câu hỏi SỬA CODE → logicType PHẢI là "patch"`);
   parts.push(`3. Chạy thử tests và trả JSON đánh giá.`);
 
   return parts.join('\n');

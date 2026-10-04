@@ -1,10 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 NÃO PHẢI — Kiểm TIP + chạy tests verify + verify pattern
-   - Kiểm 14 trường + 4 trường máy
-   - Kiểm pattern match câu gốc
-   - Kiểm logicType phù hợp intent
+   🧠 NÃO PHẢI — Kiểm TIP + chạy tests verify
+   - Verify pattern match câu gốc
+   - Verify logicType khớp intent
    - Chạy tests mathjs cho expr
-   - Gọi feedback khi fail
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
@@ -118,13 +116,9 @@ function normalizeEvaluation(raw) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   [MỚI] VERIFY PATTERN + LOGIC TYPE
+   VERIFY PATTERN + LOGIC TYPE
    ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Kiểm TIP có pattern match câu gốc không.
- * @returns {{ matched: boolean, vars: object|null }}
- */
 function verifyPattern(tip, originalProblem) {
   if (!originalProblem || !Array.isArray(tip.patterns) || tip.patterns.length === 0) {
     return { matched: false, vars: null };
@@ -140,26 +134,61 @@ function verifyPattern(tip, originalProblem) {
 }
 
 /**
- * Kiểm logicType có phù hợp với intent câu hỏi không.
+ * [MỚI] Verify logicType khớp intent — chặt hơn.
  */
 function verifyLogicTypeForIntent(tip, originalProblem) {
   if (!originalProblem) return { ok: true };
 
   const q = originalProblem.toLowerCase();
-  const isMath = /\b(tính|toán|phép|cộng|trừ|nhân|chia|tổng|hiệu|tích|thương|mũ|[+\-*/^])\b/i.test(q);
+
+  // Câu hỏi toán — phép tính
+  const isMath = /\b(tính|toán|phép|cộng|trừ|nhân|chia|tổng|hiệu|tích|thương|mũ|bình phương|[+\-*/^])\b/i.test(q);
+
+  // Câu hỏi viết code
   const isCode = /\b(viết|tạo|code|lập trình|hàm|function|script|chương trình)\b/i.test(q);
-  const isBugfix = /\b(sửa|fix|debug|lỗi|bug|error)\b/i.test(q);
+
+  // Câu hỏi sửa code
+  const isBugfix = /\b(sửa|fix|debug|lỗi|bug|error|khắc phục)\b/i.test(q);
 
   const lt = tip.logicType || '';
 
-  if (isMath && lt !== 'expr' && lt !== '') {
-    return { ok: false, reason: `Câu hỏi toán nhưng logicType="${lt}"` };
+  /* ═══ Câu hỏi TOÁN — phải là "expr" ═══ */
+  if (isMath && !isCode) {
+    if (lt !== 'expr') {
+      return {
+        ok: false,
+        reason: `Câu hỏi toán nhưng logicType="${lt}" — phải là "expr"`,
+      };
+    }
+
+    // Kiểm tra logicValue không phải code
+    const lv = String(tip.logicValue || '');
+    if (/print\s*\(|def\s+\w+|function\s+\w+|console\.log|=\s*\d+\s*$/m.test(lv)) {
+      return {
+        ok: false,
+        reason: `logicValue chứa code nhưng logicType="expr" — logicValue phải là biểu thức toán`,
+      };
+    }
   }
-  if (isCode && !['code', 'patch'].includes(lt)) {
-    return { ok: false, reason: `Câu hỏi code nhưng logicType="${lt}"` };
+
+  /* ═══ Câu hỏi CODE — phải là "code" hoặc "patch" ═══ */
+  if (isCode && !isBugfix) {
+    if (!['code', 'patch'].includes(lt)) {
+      return {
+        ok: false,
+        reason: `Câu hỏi code nhưng logicType="${lt}" — phải là "code" hoặc "patch"`,
+      };
+    }
   }
-  if (isBugfix && lt !== 'patch') {
-    return { ok: false, reason: `Câu hỏi bugfix nhưng logicType="${lt}"` };
+
+  /* ═══ Câu hỏi BUGFIX — phải là "patch" ═══ */
+  if (isBugfix) {
+    if (lt !== 'patch') {
+      return {
+        ok: false,
+        reason: `Câu hỏi bugfix nhưng logicType="${lt}" — phải là "patch"`,
+      };
+    }
   }
 
   return { ok: true };
@@ -169,9 +198,6 @@ function verifyLogicTypeForIntent(tip, originalProblem) {
    CHẠY TESTS (mathjs cho expr)
    ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Chuẩn hóa số: "7,6" → 7.6
- */
 function parseNum(v) {
   if (typeof v === 'number') return v;
   const s = String(v).replace(',', '.');
@@ -280,8 +306,6 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
         problem: `Pattern không match câu hỏi gốc: "${originalProblem.slice(0, 80)}"`,
         severity: 'high',
       });
-    } else {
-      logger.debug(`✅ Não phải: pattern match — vars=${JSON.stringify(patternCheck.vars)}`);
     }
   }
 
@@ -296,7 +320,7 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
     });
   }
 
-  /* ═══ BƯỚC 3 — Chạy tests mathjs cho expr ═══ */
+  /* ═══ BƯỚC 3 — Chạy tests ═══ */
   const testResult = runTests(tip);
   logger.debug(`Tests: allPass=${testResult.allPass}, cases=${testResult.results.length}`);
 
@@ -309,9 +333,9 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
     });
   }
 
-  /* ═══ BƯỚC 4 — Nếu có issue → trả về luôn (không cần gọi model) ═══ */
+  /* ═══ BƯỚC 4 — Nếu có issue → fail luôn, không cần gọi model ═══ */
   if (issues.length > 0) {
-    logger.warn(`🧠 Não phải: ${issues.length} issue — fail luôn, không cần gọi model`);
+    logger.warn(`🧠 Não phải: ${issues.length} issue — fail luôn`);
 
     return {
       evaluation: {
@@ -340,7 +364,7 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
     };
   }
 
-  /* ═══ BƯỚC 5 — Không có issue cứng → gọi Não phải verify ngữ nghĩa ═══ */
+  /* ═══ BƯỚC 5 — Gọi Não phải verify ngữ nghĩa ═══ */
   const userMessage = naoPhaiPrompt.buildUserMessage({ tip, originalProblem });
   const messages = [
     { role: 'system', content: naoPhaiPrompt.SYSTEM_PROMPT },
@@ -353,7 +377,7 @@ async function kiemChung({ tip, originalProblem = '', owner, tempKeys = null }) 
     owner, messages, tempKeys, label: '🧠 Não phải',
   });
 
-  /* ═══ BƯỚC 6 — Web verify nếu Não phải yêu cầu ═══ */
+  /* ═══ BƯỚC 6 — Web verify nếu cần ═══ */
   if (evaluation.needWebSearch && evaluation.searchQuery) {
     try {
       const searchResult = await webSearch(evaluation.searchQuery);
