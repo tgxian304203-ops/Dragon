@@ -5,6 +5,7 @@
    - Nhánh C: patch (Judge0)
    - Nhánh D: cây quyết định JSON (tư duy)
    - Nhánh E: fallback 14 trường
+   - [SỬA] Kiểm ngôn ngữ trước khi match pattern
    ═══════════════════════════════════════════════════════════════ */
 
 const {
@@ -14,6 +15,53 @@ const {
 const feedback = require('./brains/feedback');
 const logger = require('../utils/logger');
 
+/* ═══════════════════════════════════════════════════════════════
+   [MỚI] DETECT NGÔN NGỮ USER CẦN
+   ═══════════════════════════════════════════════════════════════ */
+
+function detectLangCan(problem) {
+  const q = String(problem).toLowerCase();
+
+  if (/html|web|shop|trang|landing|spck|css|giao diện|ui\b/.test(q)) return 'html';
+  if (/python|py\b/.test(q)) return 'python';
+  if (/javascript|js\b|node|express/.test(q)) return 'javascript';
+  if (/java\b/.test(q)) return 'java';
+  if (/c\+\+|cpp/.test(q)) return 'cpp';
+  if (/go\b|golang/.test(q)) return 'go';
+  if (/rust/.test(q)) return 'rust';
+  if (/react native/.test(q)) return 'react-native';
+  if (/flutter/.test(q)) return 'flutter';
+
+  return null;
+}
+
+/**
+ * Kiểm TIP có khớp ngôn ngữ user cần không.
+ */
+function kiemNgonNguKhop(tip, langCan) {
+  if (!langCan) return true;
+  if (!tip.logicValue) return true;
+
+  const tipLang = detectLangFromCode(tip.logicValue);
+
+  const alias = {
+    'html': ['html', 'css'],
+    'python': ['python'],
+    'javascript': ['javascript'],
+    'java': ['java'],
+    'cpp': ['cpp'],
+    'go': ['go'],
+    'rust': ['rust'],
+  };
+
+  const accepted = alias[langCan] || [langCan];
+  return accepted.includes(tipLang);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN
+   ═══════════════════════════════════════════════════════════════ */
+
 async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
   if (!tip || !tip.nguyenLy) throw new Error('TIP không hợp lệ');
   if (!problem || problem.trim() === '') throw new Error('Vấn đề rỗng');
@@ -21,11 +69,17 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
   logger.info(`🧠 Tiểu não [${userRequestType}]: "${problem.slice(0, 60)}..."`);
 
   const tipId = tip._id?.toString() || null;
+  const langCan = detectLangCan(problem);   // ← [MỚI]
 
-  /* ═══ BƯỚC 1: Match pattern ═══ */
+  /* ═══ BƯỚC 1: Match pattern (có kiểm ngôn ngữ) ═══ */
   const hasPatterns = Array.isArray(tip.patterns) && tip.patterns.length > 0;
+  const langKhop = kiemNgonNguKhop(tip, langCan);
 
-  if (hasPatterns && tip.logicType) {
+  if (!langKhop) {
+    logger.warn(`⚠️ TIP ${tipId} SAI ngôn ngữ (TIP=${detectLangFromCode(tip.logicValue)}, cần=${langCan}) → bỏ qua pattern`);
+  }
+
+  if (hasPatterns && tip.logicType && langKhop) {
     const vars = matchPattern(tip.patterns, problem);
 
     if (vars) {
@@ -91,8 +145,8 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
     }
   }
 
-  /* ═══ BƯỚC 2: [MỚI] Chạy cây quyết định JSON ═══ */
-  if (tip.cayQuyetDinhJson && Array.isArray(tip.cayQuyetDinhJson.rules) && tip.cayQuyetDinhJson.rules.length > 0) {
+  /* ═══ BƯỚC 2: Chạy cây quyết định JSON ═══ */
+  if (tip.cayQuyetDinhJson && Array.isArray(tip.cayQuyetDinhJson.rules) && tip.cayQuyetDinhJson.rules.length > 0 && langKhop) {
     logger.info(`🌳 Thử chạy cây quyết định (${tip.cayQuyetDinhJson.rules.length} rules)`);
 
     try {
@@ -107,7 +161,6 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
             .catch((err) => logger.warn('feedback.recordSuccess:', err.message));
         }
 
-        // Nếu kết quả là code
         if (cayResult.isCode || cayResult.isPatch || cayResult.language) {
           return {
             answer: cayResult.formatted || String(cayResult.kq),
@@ -119,7 +172,6 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
           };
         }
 
-        // Kết quả là text/expr
         return {
           answer: cayResult.formatted || String(cayResult.kq),
           type: 'no_code',
@@ -132,6 +184,8 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
     } catch (err) {
       logger.warn(`Chạy cây lỗi: ${err.message}`);
     }
+  } else if (!langKhop) {
+    logger.debug(`Bỏ qua cây quyết định vì sai ngôn ngữ`);
   }
 
   /* ═══ FALLBACK — Nhánh E ═══ */
@@ -167,4 +221,4 @@ function formatTIPDayDu(tip) {
   return parts.join('\n');
 }
 
-module.exports = { xuLy, formatTIPDayDu };
+module.exports = { xuLy, formatTIPDayDu, detectLangCan, kiemNgonNguKhop };
