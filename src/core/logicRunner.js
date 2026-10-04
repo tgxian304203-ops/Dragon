@@ -5,10 +5,11 @@
    - Bảng sửa chính tả phổ biến
    - Fuzzy match (Levenshtein) — chạy JS thuần
    - Nhánh expr: mathjs | Nhánh code/patch: Judge0
+   - HTML/CSS: KHÔNG chạy Judge0 — chỉ hiển thị code
    ═══════════════════════════════════════════════════════════════ */
 
 const { evaluate } = require('mathjs');
-const { testCode } = require('./judge0Test');       /* ← ĐÃ ĐỔI TỪ ./pistonTest */
+const { testCode } = require('./judge0Test');
 const logger = require('../utils/logger');
 
 /* ═══════════════════════════════════════════════════════════════
@@ -309,15 +310,43 @@ function parseNum(v) {
   return Number.isNaN(n) ? v : n;
 }
 
+/**
+ * Detect ngôn ngữ từ code.
+ * [SỬA] Thêm HTML/CSS — 2 ngôn ngữ này KHÔNG chạy Judge0.
+ */
 function detectLangFromCode(code) {
   if (!code) return 'python';
-  if (/^\s*def\s+\w+\s*\(|print\s*\(/m.test(code)) return 'python';
-  if (/^\s*function\s+\w+\s*\(|console\.log/m.test(code)) return 'javascript';
-  if (/^\s*public\s+class|System\.out\.println/m.test(code)) return 'java';
-  if (/^\s*#include|int\s+main\s*\(/m.test(code)) return 'cpp';
-  if (/^\s*package\s+main|fmt\.Print/m.test(code)) return 'go';
-  if (/^\s*fn\s+main|println!/m.test(code)) return 'rust';
+  const c = String(code);
+
+  // HTML — kiểm tra trước tiên (vì HTML có thể chứa <script> JS bên trong)
+  if (/<!DOCTYPE\s+html/i.test(c)) return 'html';
+  if (/<html[\s>]/i.test(c)) return 'html';
+  if (/<body[\s>]/i.test(c)) return 'html';
+  if (/<div[\s>]|<span[\s>]|<p[\s>]|<h[1-6][\s>]/i.test(c)) return 'html';
+
+  // CSS
+  if (/^\s*[.#]?[\w-]+\s*\{[^}]*:\s*[^;]+;/m.test(c) && !/\bfunction\b|\bdef\b|\bconst\b|\blet\b/m.test(c)) {
+    return 'css';
+  }
+
+  // Các ngôn ngữ lập trình
+  if (/^\s*def\s+\w+\s*\(|print\s*\(/m.test(c)) return 'python';
+  if (/^\s*function\s+\w+\s*\(|console\.log/m.test(c)) return 'javascript';
+  if (/^\s*public\s+class|System\.out\.println/m.test(c)) return 'java';
+  if (/^\s*#include|int\s+main\s*\(/m.test(c)) return 'cpp';
+  if (/^\s*package\s+main|fmt\.Print/m.test(c)) return 'go';
+  if (/^\s*fn\s+main|println!/m.test(c)) return 'rust';
+
   return 'python';
+}
+
+/**
+ * [MỚI] Kiểm tra ngôn ngữ có chạy được trên Judge0 không.
+ * HTML/CSS/JSX/TSX → KHÔNG chạy (chỉ hiển thị).
+ */
+function isRunnableLang(lang) {
+  const l = String(lang || '').toLowerCase();
+  return ['python', 'javascript', 'java', 'cpp', 'go', 'rust', 'c', 'typescript', 'php', 'ruby'].includes(l);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -353,8 +382,21 @@ async function runLogic({ logicType, logicValue, vars }) {
     }
 
     const language = detectLangFromCode(code);
-    logger.info(`🧪 Nhánh code — chạy qua Judge0 (${language})`);
 
+    // [MỚI] HTML/CSS → KHÔNG chạy Judge0, chỉ hiển thị code
+    if (!isRunnableLang(language)) {
+      logger.info(`📄 Code ${language} — chỉ hiển thị, không chạy Judge0`);
+      return {
+        success: true,
+        kq: code,
+        output: '',
+        language,
+        isCode: true,
+        skippedRun: true,
+      };
+    }
+
+    logger.info(`🧪 Nhánh code — chạy qua Judge0 (${language})`);
     const result = await testCode({ code, language });
 
     if (result.success) {
@@ -374,8 +416,21 @@ async function runLogic({ logicType, logicValue, vars }) {
     }
 
     const language = detectLangFromCode(patch);
-    logger.info(`🧪 Nhánh patch — chạy qua Judge0 (${language})`);
 
+    // [MỚI] HTML/CSS → KHÔNG chạy Judge0, chỉ hiển thị code
+    if (!isRunnableLang(language)) {
+      logger.info(`📄 Patch ${language} — chỉ hiển thị, không chạy Judge0`);
+      return {
+        success: true,
+        kq: patch,
+        output: '',
+        language,
+        isPatch: true,
+        skippedRun: true,
+      };
+    }
+
+    logger.info(`🧪 Nhánh patch — chạy qua Judge0 (${language})`);
     const result = await testCode({ code: patch, language });
 
     if (result.success) {
@@ -425,6 +480,7 @@ module.exports = {
   formatOutput,
   normalizeQuery,
   detectLangFromCode,
+  isRunnableLang,
   parseNum,
   levenshtein,
   similarity,
