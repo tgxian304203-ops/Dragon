@@ -8,7 +8,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 const { evaluate } = require('mathjs');
-const { testCode } = require('./pistonTest');
+const { testCode } = require('./judge0Test');       /* ← ĐÃ ĐỔI TỪ ./pistonTest */
 const logger = require('../utils/logger');
 
 /* ═══════════════════════════════════════════════════════════════
@@ -16,17 +16,12 @@ const logger = require('../utils/logger');
    ═══════════════════════════════════════════════════════════════ */
 
 const STOPWORDS = new Set([
-  // Đệm yêu cầu
   'tính', 'giúp', 'giùm', 'hộ', 'dùm', 'cho', 'hỏi', 'xem', 'thử',
   'làm', 'ơn', 'với', 'và', 'của', 'thì', 'mà', 'để', 'được',
-  // Đệm câu hỏi
   'là', 'bao', 'nhiêu', 'mấy', 'bằng', 'kết', 'quả', 'cho', 'biết',
   'vậy', 'ạ', 'à', 'nhé', 'nha', 'nào', 'gì', 'sao', 'đâu', 'khi',
-  // Đại từ
   'tôi', 'mình', 'em', 'anh', 'chị', 'bạn', 'ta', 'tớ',
-  // Đệm tiếng Anh
   'please', 'help', 'calculate', 'compute', 'what', 'is', 'the',
-  // Ký tự vô nghĩa
   '?', '!', '.', ',', ';', ':',
 ]);
 
@@ -35,7 +30,6 @@ const STOPWORDS = new Set([
    ═══════════════════════════════════════════════════════════════ */
 
 const SPELL_FIX = {
-  // Phép tính — không dấu
   'nhan': 'nhân',
   'nhân': 'nhân',
   'cong': 'cộng',
@@ -51,8 +45,6 @@ const SPELL_FIX = {
   'hieu': 'hiệu',
   'tich': 'tích',
   'thuong': 'thương',
-
-  // Đệm — không dấu
   'tinh': 'tính',
   'giup': 'giúp',
   'gium': 'giùm',
@@ -61,8 +53,6 @@ const SPELL_FIX = {
   'bao nhieu': 'bao nhiêu',
   'bang may': 'bằng mấy',
   'ket qua': 'kết quả',
-
-  // Code — không dấu
   'viet': 'viết',
   'tao': 'tạo',
   'ham': 'hàm',
@@ -72,8 +62,6 @@ const SPELL_FIX = {
   'sua': 'sửa',
   'loi': 'lỗi',
   'debug': 'debug',
-
-  // Số
   'khong': 'không',
   'mot': 'một',
   'hai': 'hai',
@@ -93,10 +81,6 @@ const SPELL_FIX = {
    NORMALIZE — chuẩn hóa câu hỏi
    ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Bỏ dấu tiếng Việt khỏi 1 chuỗi (để so sánh).
- * "nhân" → "nhan", "cộng" → "cong"
- */
 function removeDiacritics(str) {
   if (!str) return '';
   return String(str)
@@ -106,14 +90,10 @@ function removeDiacritics(str) {
     .replace(/Đ/g, 'D');
 }
 
-/**
- * Sửa chính tả — áp dụng bảng SPELL_FIX.
- */
 function fixSpelling(text) {
   if (!text) return '';
   let s = String(text).toLowerCase();
 
-  // Sắp từ dài trước để tránh bỏ sót
   const keys = Object.keys(SPELL_FIX).sort((a, b) => b.length - a.length);
 
   for (const wrong of keys) {
@@ -125,44 +105,21 @@ function fixSpelling(text) {
   return s;
 }
 
-/**
- * Chuẩn hóa câu hỏi:
- * 1. Viết thường
- * 2. Sửa chính tả qua bảng
- * 3. Thêm space quanh toán tử
- * 4. Chuẩn hóa số: 7,6 → 7.6 (giữ dấu phẩy cho hiển thị sau)
- * 5. Bỏ ký tự lạ
- * 6. Bỏ stopwords (đầu/giữa/cuối)
- * 7. Gộp space
- */
 function normalizeQuery(query) {
   if (!query || typeof query !== 'string') return '';
 
   let s = query.trim();
-
-  /* 1. Viết thường */
   s = s.toLowerCase();
-
-  /* 2. Sửa chính tả */
   s = fixSpelling(s);
-
-  /* 3. Thêm space quanh toán tử: "5+5" → "5 + 5" */
   s = s.replace(/(\d)\s*([+\-*/^=])\s*(\d)/g, '$1 $2 $3');
-
-  /* 4. Chuẩn hóa số: 7,6 → 7.6 (tạm) */
   s = s.replace(/(\d),(\d)/g, '$1.$2');
-
-  /* 5. Bỏ ký tự lạ (giữ số, chữ, space, toán tử, dấu chấm thập phân) */
   s = s.replace(/[^\p{L}\p{N}\s+\-*/^=().]/gu, ' ');
 
-  /* 6. Bỏ stopwords (đầu/giữa/cuối) */
   const words = s.split(/\s+/).filter((w) => w.length > 0);
   const filtered = words.filter((w) => !STOPWORDS.has(w.toLowerCase()));
   s = filtered.join(' ');
 
-  /* 7. Gộp space */
   s = s.replace(/\s+/g, ' ').trim();
-
   return s;
 }
 
@@ -170,9 +127,6 @@ function normalizeQuery(query) {
    FUZZY MATCH — Levenshtein distance
    ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Levenshtein distance — số ký tự cần thêm/xóa/sửa để biến a → b.
- */
 function levenshtein(a, b) {
   if (!a) return b ? b.length : 0;
   if (!b) return a.length;
@@ -180,7 +134,6 @@ function levenshtein(a, b) {
   const m = a.length;
   const n = b.length;
 
-  // Tối ưu — chỉ cần 2 hàng
   let prev = new Array(n + 1);
   let curr = new Array(n + 1);
 
@@ -190,11 +143,7 @@ function levenshtein(a, b) {
     curr[0] = i;
     for (let j = 1; j <= n; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      curr[j] = Math.min(
-        prev[j] + 1,        // xóa
-        curr[j - 1] + 1,    // thêm
-        prev[j - 1] + cost  // sửa
-      );
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
     }
     [prev, curr] = [curr, prev];
   }
@@ -202,9 +151,6 @@ function levenshtein(a, b) {
   return prev[n];
 }
 
-/**
- * Độ giống nhau giữa 2 chuỗi (0-1).
- */
 function similarity(a, b) {
   if (!a || !b) return 0;
   const dist = levenshtein(a, b);
@@ -212,21 +158,14 @@ function similarity(a, b) {
   return maxLen === 0 ? 1 : 1 - dist / maxLen;
 }
 
-/**
- * So khớp mờ — không phân biệt dấu.
- * "nhan" vs "nhân" → 1.0 (vì bỏ dấu giống nhau)
- * "tinh" vs "tính" → 1.0
- */
 function fuzzyEqual(a, b, threshold = 0.75) {
   if (!a || !b) return false;
   if (a === b) return true;
 
-  // Bỏ dấu rồi so sánh trước
   const aNoDiacritic = removeDiacritics(a);
   const bNoDiacritic = removeDiacritics(b);
   if (aNoDiacritic === bNoDiacritic) return true;
 
-  // Nếu không giống sau bỏ dấu → dùng Levenshtein
   const sim = similarity(aNoDiacritic, bNoDiacritic);
   return sim >= threshold;
 }
@@ -239,7 +178,6 @@ function patternToRegex(pattern) {
   let s = String(pattern);
   s = s.replace(/\s+/g, ' ').trim();
 
-  // Đánh dấu placeholder
   s = s.replace(/\{a\}/g, '\u0001NUM\u0001');
   s = s.replace(/\{b\}/g, '\u0001NUM\u0001');
   s = s.replace(/\{c\}/g, '\u0001NUM\u0001');
@@ -250,13 +188,9 @@ function patternToRegex(pattern) {
   s = s.replace(/\{error\}/g, '\u0001CODE\u0001');
   s = s.replace(/\{text\}/g, '\u0001CODE\u0001');
 
-  // Escape ký tự đặc biệt
   s = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-  // Space → \s*
   s = s.replace(/ /g, '\\s*');
 
-  // Khôi phục placeholder
   s = s.replace(/\u0001NUM\u0001/g, '(-?\\d+(?:[.,]\\d+)?)');
   s = s.replace(/\u0001STR\u0001/g, '([\\w\\u00C0-\\u1EF9]+)');
   s = s.replace(/\u0001CODE\u0001/g, '(.+?)');
@@ -268,9 +202,6 @@ function patternToRegex(pattern) {
    MATCH PATTERN — regex exact + fuzzy fallback
    ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Thử regex exact.
- */
 function tryRegexMatch(pattern, query) {
   try {
     const re = patternToRegex(pattern);
@@ -296,12 +227,7 @@ function tryRegexMatch(pattern, query) {
   }
 }
 
-/**
- * Fuzzy match — so từng từ, không phân biệt dấu.
- * Dùng khi regex fail.
- */
 function tryFuzzyMatch(pattern, query) {
-  // Bỏ placeholder → pattern template
   const cleanPattern = pattern
     .replace(/\{a\}|\{b\}|\{c\}|\{d\}|\{n\}/g, 'NUM')
     .replace(/\{name\}/g, 'STR')
@@ -312,8 +238,6 @@ function tryFuzzyMatch(pattern, query) {
 
   const cleanQuery = query.toLowerCase().trim();
 
-  // Đơn giản: so similarity toàn câu với toàn pattern (thay NUM/STR/CODE bằng dấu *)
-  // Không match vars — chỉ trả về "matched" để caller biết
   const patternTemplate = cleanPattern
     .replace(/NUM/g, '')
     .replace(/STR/g, '')
@@ -323,13 +247,11 @@ function tryFuzzyMatch(pattern, query) {
 
   const queryClean = cleanQuery.replace(/\s+/g, ' ').trim();
 
-  // So từng từ
   const patternWords = patternTemplate.split(/\s+/).filter((w) => w);
   const queryWords = queryClean.split(/\s+/).filter((w) => w);
 
   if (patternWords.length === 0) return null;
 
-  // Đếm số từ khớp fuzzy
   let matched = 0;
   for (const pw of patternWords) {
     for (const qw of queryWords) {
@@ -348,11 +270,6 @@ function tryFuzzyMatch(pattern, query) {
   return null;
 }
 
-/**
- * Match câu hỏi với patterns → vars
- * 1. Regex exact
- * 2. Fuzzy match (nếu regex fail)
- */
 function matchPattern(patterns, query) {
   if (!Array.isArray(patterns) || patterns.length === 0) return null;
   if (!query || typeof query !== 'string') return null;
@@ -362,7 +279,6 @@ function matchPattern(patterns, query) {
 
   if (!q) return null;
 
-  /* ═══ TẦNG 1 — Regex exact ═══ */
   for (const p of patterns) {
     const vars = tryRegexMatch(p, q);
     if (vars) {
@@ -371,13 +287,10 @@ function matchPattern(patterns, query) {
     }
   }
 
-  /* ═══ TẦNG 2 — Fuzzy match ═══ */
   for (const p of patterns) {
     const fuzzy = tryFuzzyMatch(p, q);
     if (fuzzy) {
       logger.debug(`🔍 Fuzzy match: "${p}" (ratio=${fuzzy._ratio.toFixed(2)})`);
-      // Fuzzy match chỉ trả về dấu hiệu match — không extract vars được
-      // Vars sẽ được extract bằng regex lỏng hơn trong matchPattern
       return { _fuzzy: true, _pattern: p, _ratio: fuzzy._ratio };
     }
   }
@@ -414,7 +327,6 @@ function detectLangFromCode(code) {
 async function runLogic({ logicType, logicValue, vars }) {
   if (!logicType) return { success: false, error: 'Thiếu logicType' };
 
-  /* ═══ NHÁNH A — expr ═══ */
   if (logicType === 'expr') {
     if (!logicValue) return { success: false, error: 'Thiếu logicValue' };
 
@@ -432,7 +344,6 @@ async function runLogic({ logicType, logicValue, vars }) {
     }
   }
 
-  /* ═══ NHÁNH B — code ═══ */
   if (logicType === 'code') {
     if (!logicValue) return { success: false, error: 'Thiếu logicValue' };
 
@@ -454,7 +365,6 @@ async function runLogic({ logicType, logicValue, vars }) {
     return { success: false, kq: code, output: result.stdout, language, isCode: true, error: result.error };
   }
 
-  /* ═══ NHÁNH C — patch ═══ */
   if (logicType === 'patch') {
     if (!logicValue) return { success: false, error: 'Thiếu logicValue' };
 
@@ -508,10 +418,6 @@ function formatOutput(tpl, vars, kq) {
   return out;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   EXPORTS
-   ═══════════════════════════════════════════════════════════════ */
-
 module.exports = {
   patternToRegex,
   matchPattern,
@@ -520,7 +426,6 @@ module.exports = {
   normalizeQuery,
   detectLangFromCode,
   parseNum,
-  // [MỚI] export thêm
   levenshtein,
   similarity,
   fuzzyEqual,

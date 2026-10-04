@@ -5,7 +5,7 @@
 const naoTrai = require('./brains/naoTrai');
 const naoPhai = require('./brains/naoPhai');
 const { callModel } = require('./brains/goiModel');
-const { testCode } = require('./pistonTest');
+const { testCode } = require('./judge0Test');       /* ← ĐÃ ĐỔI TỪ ./pistonTest */
 const logger = require('../utils/logger');
 
 async function xuLySaiLan2({ problem, failedCode, failedLanguage, errors, tip, owner }) {
