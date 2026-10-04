@@ -1,8 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
    🐉 RỒNG THẦN — FRONTEND LOGIC
    - Canvas vẽ dùng Pointer Events — chạy mọi thiết bị
-   - Lưu ảnh gốc để vẽ lại đúng
-   - Nút tẩy xóa hết nét
+   - Bỏ crossOrigin — ảnh blob URL load được
+   - Nút tẩy xóa nét
    ═══════════════════════════════════════════════════════════════ */
 
 const API = {
@@ -1001,7 +1001,7 @@ fileInputFile.addEventListener('change', () => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   MODAL VẼ ẢNH — DÙNG POINTER EVENTS
+   MODAL VẼ ẢNH — POINTER EVENTS, KHÔNG crossOrigin
    ═══════════════════════════════════════════════════════════════ */
 
 const modalDraw = $('#modal-draw');
@@ -1024,7 +1024,10 @@ let isDrawing = false;
 /* Mở modal vẽ */
 function openDrawModal(attachmentId) {
   const att = pendingAttachments.find((a) => a.id === attachmentId);
-  if (!att || att.type !== 'image') return;
+  if (!att || att.type !== 'image') {
+    showToast('Không tìm thấy ảnh');
+    return;
+  }
 
   currentAttachmentId = attachmentId;
   strokes = [];
@@ -1034,13 +1037,13 @@ function openDrawModal(attachmentId) {
   drawEraser.classList.remove('active');
 
   const img = new Image();
-  img.crossOrigin = 'anonymous';
+
   img.onload = () => {
     currentImage = img;
 
     const wrap = drawCanvas.parentElement;
-    const wrapW = wrap.clientWidth;
-    const wrapH = wrap.clientHeight;
+    const wrapW = wrap.clientWidth || window.innerWidth;
+    const wrapH = wrap.clientHeight || (window.innerHeight - 120);
     const ratio = Math.min(wrapW / img.width, wrapH / img.height);
 
     const w = Math.max(1, Math.floor(img.width * ratio));
@@ -1058,9 +1061,12 @@ function openDrawModal(attachmentId) {
     redrawAll();
     modalDraw.classList.remove('hidden');
   };
-  img.onerror = () => {
+
+  img.onerror = (e) => {
+    console.error('Load ảnh lỗi:', e);
     showToast('Không tải được ảnh');
   };
+
   img.src = att.previewUrl;
 }
 
@@ -1091,7 +1097,7 @@ function redrawAll() {
   canvasCtx.globalCompositeOperation = 'source-over';
 }
 
-/* Vẽ 1 nét trực tiếp (không cần redraw toàn bộ) */
+/* Vẽ 1 đoạn trực tiếp */
 function drawStrokeSegment(stroke, fromIdx) {
   if (!canvasCtx) return;
   const pts = stroke.points;
@@ -1112,7 +1118,7 @@ function drawStrokeSegment(stroke, fromIdx) {
   canvasCtx.globalCompositeOperation = 'source-over';
 }
 
-/* Lấy vị trí trong canvas */
+/* Vị trí trong canvas */
 function getCanvasPos(e) {
   const rect = drawCanvas.getBoundingClientRect();
   return {
@@ -1126,7 +1132,7 @@ function onPointerDown(e) {
   if (!canvasCtx) return;
   e.preventDefault();
 
-  drawCanvas.setPointerCapture(e.pointerId);
+  try { drawCanvas.setPointerCapture(e.pointerId); } catch (_) {}
 
   isDrawing = true;
   const pos = getCanvasPos(e);
@@ -1185,7 +1191,6 @@ drawEraser.addEventListener('click', () => {
   if (isEraser) {
     drawTools.forEach((t) => t.classList.remove('active'));
   } else {
-    // Khi tắt tẩy → chọn lại màu đỏ mặc định
     const firstTool = document.querySelector('.draw-tool');
     if (firstTool) {
       firstTool.classList.add('active');
@@ -1194,28 +1199,26 @@ drawEraser.addEventListener('click', () => {
   }
 });
 
-/* Undo — xóa nét cuối */
+/* Undo */
 drawUndo.addEventListener('click', () => {
   if (strokes.length === 0) return;
   strokes.pop();
   redrawAll();
 });
 
-/* Hủy — không lưu */
+/* Hủy */
 drawCancel.addEventListener('click', () => {
   modalDraw.classList.add('hidden');
   currentAttachmentId = null;
   strokes = [];
   currentStroke = null;
   isDrawing = false;
+  currentImage = null;
 });
 
-/* Xong — xuất canvas thành blob */
+/* Xong — xuất canvas */
 drawDone.addEventListener('click', () => {
   if (!currentAttachmentId || !canvasCtx) return;
-
-  // Vẽ nền trắng để tránh PNG trong suốt (nếu cần)
-  // Nhưng giữ nguyên ảnh gốc → không cần nền trắng
 
   drawCanvas.toBlob((blob) => {
     if (!blob) {
