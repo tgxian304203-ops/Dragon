@@ -27,6 +27,7 @@ html, body {
   --accent: #22c55e;
   --accent-soft: rgba(34, 197, 94, 0.15);
   --danger: #ef4444;
+  --warning: #f59e0b;
   --blur-menu: 24px;
   --blur-bubble: 16px;
   --radius: 18px;
@@ -210,10 +211,7 @@ body.light .icon-btn:active { background: rgba(0, 0, 0, 0.06); }
 
 .msg.error .bubble { color: var(--danger); border-color: rgba(239, 68, 68, 0.3); }
 
-/* ═══════════════════════════════════════════════════════════════
-   [MỚI] KHUNG CODE — tách riêng
-   ═══════════════════════════════════════════════════════════════ */
-
+/* ═══ KHUNG CODE — tách riêng ═══ */
 .code-block {
   background: var(--code-bg);
   border: 1px solid var(--code-border);
@@ -792,6 +790,9 @@ body.light .icon-btn:active { background: rgba(0, 0, 0, 0.06); }
 }
 
 .key-status { font-size: 14px; }
+.key-status.cho_hoi { opacity: 0.9; }
+.key-status.chet { opacity: 0.9; }
+
 .key-provider { font-weight: 600; color: var(--text-main); text-transform: capitalize; }
 
 .key-index {
@@ -842,7 +843,7 @@ body.light .key-bar { background: rgba(0, 0, 0, 0.08); }
   height: 100%;
   background: linear-gradient(90deg, var(--accent), #4ade80);
   border-radius: 3px;
-  transition: width 0.4s ease;
+  transition: width 0.4s ease, background 0.3s ease;
 }
 
 .key-pct {
@@ -851,6 +852,19 @@ body.light .key-bar { background: rgba(0, 0, 0, 0.08); }
   font-variant-numeric: tabular-nums;
   min-width: 36px;
   text-align: right;
+}
+
+/* ═══ KEY STATUS — text "Chờ X" / "Chết" ═══ */
+.key-cho-hoi {
+  font-size: 11px;
+  color: var(--warning);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding: 0 4px;
+}
+
+.key-cho-hoi.chet {
+  color: var(--danger);
 }
 
 /* ═══ MODAL ═══ */

@@ -3,6 +3,7 @@
    - Code block tách riêng (text + code + output)
    - Logo SVG cho nút Copy + Output
    - Voice press-and-hold + project
+   - Key status: 🔥🐉 dang_dung / 🔋 cho_hoi / ☠️ chet
    ═══════════════════════════════════════════════════════════════ */
 
 const API = {
@@ -104,6 +105,9 @@ let isLoggedIn = false;
 let pendingAttachments = [];
 let attachmentIdCounter = 0;
 
+// Refresh quota khi menu phải mở
+let quotaRefreshTimer = null;
+
 /* ═══ GUEST TOKEN ═══ */
 function getGuestToken() { return localStorage.getItem('rongthan_guest_token'); }
 function setGuestToken(t) {
@@ -154,14 +158,10 @@ function scrollToBottom() {
   requestAnimationFrame(() => { chatMessages.scrollTop = chatMessages.scrollHeight; });
 }
 
-/**
- * [MỚI] Tạo khung code + output tách riêng.
- */
 function createCodeBlock({ code, language, output }) {
   const block = document.createElement('div');
   block.className = 'code-block';
 
-  // ─── Header ───
   const header = document.createElement('div');
   header.className = 'code-header';
 
@@ -170,7 +170,6 @@ function createCodeBlock({ code, language, output }) {
   lang.textContent = (language || 'code').toUpperCase();
   header.appendChild(lang);
 
-  // Nút Copy
   const copyBtn = document.createElement('button');
   copyBtn.type = 'button';
   copyBtn.className = 'code-copy';
@@ -185,13 +184,11 @@ function createCodeBlock({ code, language, output }) {
   header.appendChild(copyBtn);
   block.appendChild(header);
 
-  // ─── Code content ───
   const pre = document.createElement('pre');
   pre.className = 'code-content';
   pre.textContent = code || '';
   block.appendChild(pre);
 
-  // ─── Output ───
   if (output && String(output).trim() !== '') {
     const outWrap = document.createElement('div');
     outWrap.className = 'code-output';
@@ -211,9 +208,6 @@ function createCodeBlock({ code, language, output }) {
   return block;
 }
 
-/**
- * Copy code vào clipboard + đổi icon tạm thời.
- */
 async function copyCodeToClipboard(code, btn) {
   try {
     await navigator.clipboard.writeText(code);
@@ -224,7 +218,6 @@ async function copyCodeToClipboard(code, btn) {
       btn.classList.remove('copied');
     }, 2000);
   } catch (err) {
-    // Fallback: dùng textarea tạm
     const ta = document.createElement('textarea');
     ta.value = code;
     ta.style.position = 'fixed';
@@ -246,9 +239,6 @@ async function copyCodeToClipboard(code, btn) {
   }
 }
 
-/**
- * [SỬA] appendMessage — hỗ trợ hiển thị code + output tách riêng.
- */
 function appendMessage(role, text, opts = {}) {
   const msg = document.createElement('div');
   msg.className = 'msg ' + role;
@@ -261,10 +251,8 @@ function appendMessage(role, text, opts = {}) {
 
   msg.appendChild(avatar);
 
-  /* ═══ Nếu có code → tách text + code ═══ */
   const hasCode = opts.code && String(opts.code).trim() !== '';
 
-  // Text bubble (chỉ hiện nếu có text)
   const cleanText = removeMarkdownCodeBlock(text);
   if (cleanText && cleanText.trim() !== '') {
     const bubble = document.createElement('div');
@@ -273,7 +261,6 @@ function appendMessage(role, text, opts = {}) {
     msg.appendChild(bubble);
   }
 
-  // Code block (nếu có)
   if (hasCode) {
     const codeBlock = createCodeBlock({
       code: opts.code,
@@ -288,16 +275,12 @@ function appendMessage(role, text, opts = {}) {
   return msg;
 }
 
-/**
- * Xóa phần code block khỏi text — vì đã tách ra khung riêng.
- * VD: "Đây là code:\n```python\n...\n```" → "Đây là code:"
- */
 function removeMarkdownCodeBlock(text) {
   if (!text || typeof text !== 'string') return '';
   return text
-    .replace(/```[\s\S]*?```/g, '')         // Bỏ ```...```
-    .replace(/\*\*/g, '')                    // Bỏ ** đậm
-    .replace(/\n{3,}/g, '\n\n')              // Gộp dòng trống
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/\*\*/g, '')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
@@ -496,7 +479,6 @@ async function sendMessage(overrideText, metadata = null) {
 
     pendingMsg.remove();
 
-    /* ═══ [MỚI] Hiển thị AI message với code + output tách riêng ═══ */
     appendMessage('ai', data.reply || '', {
       code: data.code || null,
       language: data.language || null,
@@ -520,17 +502,33 @@ async function sendMessage(overrideText, metadata = null) {
 btnSend.addEventListener('click', () => sendMessage());
 
 /* ═══ MENU ═══ */
+function startQuotaRefresh() {
+  stopQuotaRefresh();
+  quotaRefreshTimer = setInterval(() => {
+    if (menuRight.classList.contains('open')) loadKeys();
+  }, 60000);
+}
+
+function stopQuotaRefresh() {
+  if (quotaRefreshTimer) {
+    clearInterval(quotaRefreshTimer);
+    quotaRefreshTimer = null;
+  }
+}
+
 function openMenu(side) {
   const menu = side === 'left' ? menuLeft : menuRight;
   menu.classList.add('open');
   menu.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
+  if (side === 'right') startQuotaRefresh();
 }
 
 function closeMenu(side) {
   const menu = side === 'left' ? menuLeft : menuRight;
   menu.classList.remove('open');
   menu.setAttribute('aria-hidden', 'true');
+  if (side === 'right') stopQuotaRefresh();
   if (!menuLeft.classList.contains('open') && !menuRight.classList.contains('open')) {
     document.body.style.overflow = '';
   }
@@ -605,6 +603,21 @@ async function checkAuthStatus() {
 }
 
 /* ═══ BRAIN KEYS ═══ */
+
+/**
+ * Format ms thành chuỗi ngắn: 45s / 3m / 2h15m
+ */
+function formatChoHoi(ms) {
+  if (!ms || ms <= 0) return '';
+  const totalSec = Math.floor(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const totalMin = Math.floor(totalSec / 60);
+  if (totalMin < 60) return `${totalMin}m`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m > 0 ? `${h}h${m}m` : `${h}h`;
+}
+
 function renderKeys(containerEl, keys) {
   containerEl.innerHTML = '';
   if (!keys || keys.length === 0) {
@@ -619,9 +632,13 @@ function renderKeys(containerEl, keys) {
     const top = document.createElement('div');
     top.className = 'key-row-top';
 
+    const statusKey = key.status || 'dang_dung';
+
     const status = document.createElement('span');
-    status.className = 'key-status';
-    status.textContent = '🔥🐉';
+    status.className = 'key-status ' + statusKey;
+    if (statusKey === 'chet') status.textContent = '☠️';
+    else if (statusKey === 'cho_hoi') status.textContent = '🔋';
+    else status.textContent = '🔥🐉';
 
     const provider = document.createElement('span');
     provider.className = 'key-provider';
@@ -647,6 +664,8 @@ function renderKeys(containerEl, keys) {
     fill.className = 'key-fill';
     const pct = Math.max(0, Math.min(100, Number(key.quotaPercent) || 0));
     fill.style.width = pct + '%';
+    if (statusKey === 'chet') fill.style.background = '#ef4444';
+    else if (statusKey === 'cho_hoi') fill.style.background = '#f59e0b';
     bar.appendChild(fill);
 
     const pctEl = document.createElement('span');
@@ -654,6 +673,19 @@ function renderKeys(containerEl, keys) {
     pctEl.textContent = pct + '%';
 
     bottom.append(bar, pctEl);
+
+    if (statusKey === 'cho_hoi' && key.conLaiMs > 0) {
+      const choHoi = document.createElement('span');
+      choHoi.className = 'key-cho-hoi';
+      choHoi.textContent = 'Chờ ' + formatChoHoi(key.conLaiMs);
+      bottom.appendChild(choHoi);
+    } else if (statusKey === 'chet') {
+      const chet = document.createElement('span');
+      chet.className = 'key-cho-hoi chet';
+      chet.textContent = 'Chết';
+      bottom.appendChild(chet);
+    }
+
     row.append(top, bottom);
     containerEl.appendChild(row);
   });

@@ -1,23 +1,27 @@
 /* ═══════════════════════════════════════════════════════════════
-   📊 QUOTA TRACKER (NT14, NP14)
-   - updateQuota: cập nhật % quota từ header API
-   - markExhausted: đánh dấu hết quota
-   - layQuotaHieuDung: trả quota có xét TTL reset
+   📊 QUOTA TRACKER
+   
+   CƠ CHẾ RESET THỰC TẾ (theo tài liệu provider):
+   - Groq: RPM reset 60s, RPD reset nửa đêm UTC
+   - Gemini: RPM reset 60s, RPD reset nửa đêm PT
+   - OpenRouter: RPM reset 60s, RPD reset nửa đêm UTC
+   
+   → TTL dùng chung 60 giây (RPM reset).
+   → Nếu hết RPD → gọi lại sau 60s vẫn 429 → markExhausted lại → nghỉ tiếp.
    ═══════════════════════════════════════════════════════════════ */
 
 const BrainKey = require('../../models/brainKey.model');
 const logger = require('../../utils/logger');
 
-// TTL reset quota theo provider (ms)
+// TTL reset quota — tất cả provider reset RPM sau 60 giây
 const QUOTA_RESET_TTL = {
-  gemini: 24 * 60 * 60 * 1000,    // 24h — Gemini reset quota hàng ngày
-  groq: 60 * 60 * 1000,            // 1h — Groq reset nhanh
-  openrouter: 24 * 60 * 60 * 1000, // 24h
+  gemini: 60 * 1000,
+  groq: 60 * 1000,
+  openrouter: 60 * 1000,
 };
 
 function normalizeRateLimit(rateLimit) {
   if (!rateLimit) return null;
-
   if (rateLimit.limitRequests != null && rateLimit.remainingRequests != null) {
     return { limit: rateLimit.limitRequests, remaining: rateLimit.remainingRequests };
   }
@@ -59,8 +63,10 @@ async function markExhausted(keyId) {
 }
 
 /**
- * [MỚI] Trả quota hiệu dụng có xét TTL.
- * Nếu quotaPercent=0 nhưng đã quá TTL reset của provider → coi như quota reset.
+ * Trả quota hiệu dụng có xét TTL reset.
+ * - quotaPercent > 0 → trả nguyên
+ * - quotaPercent = 0 nhưng đã qua TTL (60s) → coi như hồi 100%
+ * - quotaPercent = 0 và chưa đủ TTL → 0
  */
 function layQuotaHieuDung(key) {
   if (!key) return 0;
@@ -68,18 +74,42 @@ function layQuotaHieuDung(key) {
   const rawPercent = typeof key.quotaPercent === 'number' ? key.quotaPercent : 100;
   if (rawPercent > 0) return rawPercent;
 
-  const provider = key.provider || 'gemini';
-  const ttl = QUOTA_RESET_TTL[provider] || QUOTA_RESET_TTL.gemini;
+  const provider = key.provider || 'groq';
+  const ttl = QUOTA_RESET_TTL[provider] || QUOTA_RESET_TTL.groq;
 
   const updatedAt = key.quotaUpdatedAt ? new Date(key.quotaUpdatedAt).getTime() : 0;
   const now = Date.now();
 
-  // Đã quá TTL → coi như quota reset, trả về 50 (giả định có thể dùng lại)
   if (updatedAt && now - updatedAt >= ttl) {
-    return 50;
+    return 100;
   }
-
   return 0;
 }
 
-module.exports = { updateQuota, markExhausted, layQuotaHieuDung, QUOTA_RESET_TTL };
+/**
+ * Số ms còn phải chờ để key hồi quota (nếu đang 0%).
+ * Trả 0 nếu key không cần chờ.
+ */
+function tinhConLaiMs(key) {
+  if (!key) return 0;
+
+  const rawPercent = typeof key.quotaPercent === 'number' ? key.quotaPercent : 100;
+  if (rawPercent > 0) return 0;
+
+  const provider = key.provider || 'groq';
+  const ttl = QUOTA_RESET_TTL[provider] || QUOTA_RESET_TTL.groq;
+
+  const updatedAt = key.quotaUpdatedAt ? new Date(key.quotaUpdatedAt).getTime() : 0;
+  if (!updatedAt) return 0;
+
+  const conLai = updatedAt + ttl - Date.now();
+  return conLai > 0 ? conLai : 0;
+}
+
+module.exports = {
+  updateQuota,
+  markExhausted,
+  layQuotaHieuDung,
+  tinhConLaiMs,
+  QUOTA_RESET_TTL,
+};
