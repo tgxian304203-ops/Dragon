@@ -1,8 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════
    🐉 RỒNG THẦN — Orchestrator
-   - Check thời gian → trả lời từ đồng hồ
-   - Não trái + Não phải loop ≤3
-   - [SỬA] Check issues severity high → loop bổ sung
+   - Đọc Context + User Profile + Intent History
+   - Loop Não trái + Não phải ≤3
+   - Bổ sung cây khi Tiểu não fallback
+   - Auto-learn user profile
    ═══════════════════════════════════════════════════════════════ */
 
 const { docNguCanh, rutGonChoNao } = require('./docNguCanh');
@@ -13,7 +14,9 @@ const naoPhai = require('./brains/naoPhai');
 const tieuNao = require('./tieuNao');
 const { danhGiaTIP } = require('./danhGiaTIP');
 const contextService = require('../services/context.service');
+const userService = require('../services/user.service');
 const { getTipModel } = require('../models/tip.model');
+const Conversation = require('../models/conversation.model');
 const logger = require('../utils/logger');
 
 /* ═══════════════════════════════════════════════════════════════
@@ -45,11 +48,7 @@ function layThoiGianVN() {
   }).formatToParts(now);
   const map = {};
   for (const p of parts) map[p.type] = p.value;
-  return {
-    thu: THU_MAP[map.weekday] || map.weekday,
-    ngay: map.day, thang: map.month, nam: map.year,
-    gio: map.hour, phut: map.minute,
-  };
+  return { thu: THU_MAP[map.weekday] || map.weekday, ngay: map.day, thang: map.month, nam: map.year, gio: map.hour, phut: map.minute };
 }
 
 function traLoiThoiGian() {
@@ -76,22 +75,38 @@ async function xuLy({ message, conversationId, userId, guestSessionId }) {
   logger.info(`🐉 Rồng Thần: "${problem.slice(0, 80)}..."`);
 
   if (laCauHoiThoiGian(problem)) {
-    logger.info('🕐 Câu hỏi thời gian → trả lời từ đồng hồ hệ thống');
+    logger.info('🕐 Câu hỏi thời gian → trả lời từ đồng hồ');
     return { answer: traLoiThoiGian(), source: 'system_clock', meta: { type: 'time_query' } };
   }
 
+  /* ═══ Đọc Context + User Profile + Intent History ═══ */
   const context = await docNguCanh({ conversationId, userId, guestSessionId });
   context.thoiGianHienTai = layThoiGianChoContext();
 
-  const analysis = phanTichYeuCau({ problem, context });
-  logger.info(`🐉 Phân tích: web=${analysis.needWeb}, code=${analysis.needCode}, intent=${analysis.intent}`);
+  const userProfile = userId ? await userService.getProfile(userId) : null;
+  const intentHistory = context?.context?.intentHistory || [];
 
-  capNhatContext({ conversationId, userId, guestSessionId, context, problem, intent: analysis.intent })
-    .catch((err) => logger.warn('Context update lỗi:', err.message));
+  const analysis = phanTichYeuCau({ problem, context, userProfile, intentHistory });
+  logger.info(`🐉 Phân tích: web=${analysis.needWeb}, code=${analysis.needCode}, intent=${analysis.intent}, langCan=${analysis.langCan || 'null'}`);
+
+  /* ═══ Cập nhật Context ═══ */
+  capNhatContext({
+    conversationId, userId, guestSessionId, context, problem, intent: analysis.intent,
+  }).catch((err) => logger.warn('Context update lỗi:', err.message));
+
+  /* ═══ Ghi intent vào history ═══ */
+  if (userId) {
+    contextService.pushIntent(conversationId, analysis.intent).catch(() => {});
+  }
+
+  /* ═══ Auto-learn user profile ═══ */
+  if (userId && analysis.langCan) {
+    userService.autoLearn(userId, { lang: analysis.langCan, projectType: analysis.projectType }).catch(() => {});
+  }
 
   if (analysis.needWeb) return await xuLyCoWeb({ problem, searchQuery: analysis.searchQuery });
 
-  return await xuLyKhongWeb({ problem, analysis, context, owner });
+  return await xuLyKhongWeb({ problem, analysis, context, owner, userProfile, intentHistory });
 }
 
 async function capNhatContext({ conversationId, userId, guestSessionId, context, problem, intent = 'general' }) {
@@ -115,6 +130,10 @@ async function capNhatContext({ conversationId, userId, guestSessionId, context,
   });
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   PHÂN TÍCH YÊU CẦU
+   ═══════════════════════════════════════════════════════════════ */
+
 const WEB_PATTERNS = [
   /\b(hôm nay|hôm qua|ngày mai|tuần này|tháng này|năm nay|mới nhất|gần đây|hiện tại|bây giờ)\b/i,
   /\b(tin tức|thời sự|sự kiện|báo|news|thời tiết|dự báo|giá cả|giá vàng|chứng khoán|tỷ giá)\b/i,
@@ -132,10 +151,47 @@ const CODE_PATTERNS = [
   /\b(viết|tạo|xây dựng)\b.*\b(web|app|game|tool|công cụ|trang)\b/i,
 ];
 
-function phanTichYeuCau({ problem, context }) {
+function detectLangCan(problem) {
+  const q = String(problem).toLowerCase();
+  if (/\b(spck|html|web|shop|trang web|trang|landing|css|giao diện|\bui\b|frontend|front-end|website|cửa hàng|bán hàng)\b/.test(q)) return 'html';
+  if (/\bpython\b|\bpy\b/.test(q)) return 'python';
+  if (/\bjavascript\b|\bjs\b|\bnode\b|express/.test(q)) return 'javascript';
+  if (/\bjava\b/.test(q) && !/javascript/.test(q)) return 'java';
+  if (/c\+\+|cpp/.test(q)) return 'cpp';
+  if (/\bgolang\b/.test(q)) return 'go';
+  if (/\brust\b/.test(q)) return 'rust';
+  if (/react native/.test(q)) return 'react-native';
+  if (/\bflutter\b/.test(q)) return 'flutter';
+  return null;
+}
+
+function detectProjectType(problem) {
+  const q = String(problem).toLowerCase();
+  if (/shop|bán hàng|cửa hàng/.test(q)) return 'shop';
+  if (/web|trang web|landing/.test(q)) return 'web';
+  if (/api|gọi api/.test(q)) return 'api';
+  if (/chatbot|\bai\b/.test(q)) return 'ai';
+  if (/game/.test(q)) return 'game';
+  if (/tool|công cụ/.test(q)) return 'tool';
+  if (/dashboard/.test(q)) return 'dashboard';
+  return '';
+}
+
+function phanTichYeuCau({ problem, context, userProfile, intentHistory }) {
   const ruleResult = phanTichBangRule(problem);
   const contextResult = phanTichBangContext({ problem, context });
-  return ketHopPhanTich({ problem, ruleResult, contextResult });
+  const ketQua = ketHopPhanTich({ problem, ruleResult, contextResult });
+
+  // Nếu không rõ ngôn ngữ → dùng profile
+  let langCan = ketQua.langCan;
+  if (!langCan && userProfile?.preferredLang) {
+    langCan = userProfile.preferredLang;
+    logger.debug(`🌐 langCan từ profile: ${langCan}`);
+  }
+
+  ketQua.langCan = langCan;
+  ketQua.projectType = detectProjectType(problem);
+  return ketQua;
 }
 
 function phanTichBangRule(problem) {
@@ -148,7 +204,12 @@ function phanTichBangRule(problem) {
   if (needWeb && needCode && codeHits > webHits) needWeb = false;
   const intent = detectIntent(problem);
 
-  return { needWeb, needCode: needCode && !needWeb, webHits, codeHits, intent, searchQuery: buildSearchQuery(problem) };
+  return {
+    needWeb, needCode: needCode && !needWeb,
+    webHits, codeHits, intent,
+    langCan: detectLangCan(problem),
+    searchQuery: buildSearchQuery(problem),
+  };
 }
 
 function phanTichBangContext({ problem, context }) {
@@ -157,6 +218,7 @@ function phanTichBangContext({ problem, context }) {
   const ctx = context.context;
   const codeKeywords = ['code', 'python', 'javascript', 'lập trình', 'hàm', 'function', 'thuật toán'];
   const webKeywords = ['tin tức', 'thời sự', 'tra cứu', 'thời tiết', 'giá'];
+
   const ctxText = [ctx.nguyenLy, ctx.phuongPhap, ctx.suyLuan].filter(Boolean).join(' ').toLowerCase();
   if (codeKeywords.some((k) => ctxText.includes(k))) result.inCodeFlow = true;
   if (webKeywords.some((k) => ctxText.includes(k))) result.inWebFlow = true;
@@ -180,6 +242,7 @@ function ketHopPhanTich({ problem, ruleResult, contextResult }) {
   return {
     needWeb, needCode,
     intent: ruleResult.intent,
+    langCan: ruleResult.langCan,
     mainProblem: problem,
     searchQuery: ruleResult.searchQuery,
   };
@@ -205,11 +268,7 @@ async function xuLyCoWeb({ problem, searchQuery }) {
   logger.info(`🌐 Tavily: "${searchQuery.slice(0, 60)}..."`);
   try {
     const searchResult = await webSearch(searchQuery);
-    return {
-      answer: formatWebOutput(searchResult, problem),
-      source: 'web',
-      meta: { searchQuery, resultCount: searchResult.results.length },
-    };
+    return { answer: formatWebOutput(searchResult, problem), source: 'web', meta: { searchQuery, resultCount: searchResult.results.length } };
   } catch (err) {
     logger.error('Web search lỗi:', err.message);
     return { answer: `⚠️ Lỗi tìm kiếm: ${err.message}`, source: 'web_error', meta: { error: err.message } };
@@ -229,14 +288,15 @@ function formatWebOutput(searchResult, problem) {
   return lines.join('\n');
 }
 
-async function xuLyKhongWeb({ problem, analysis, context, owner }) {
+async function xuLyKhongWeb({ problem, analysis, context, owner, userProfile, intentHistory }) {
   const searchQuery = analysis.mainProblem || problem;
   const needCode = analysis.needCode;
   const intent = analysis.intent;
+  const langCan = analysis.langCan;
 
   let relatedTIPs = [];
   try {
-    relatedTIPs = await searchTIP(searchQuery, { limit: 10, minScore: 15, intent });
+    relatedTIPs = await searchTIP(searchQuery, { limit: 10, minScore: 15, intent, langCan });
   } catch (err) {
     logger.warn('Search Kho 2 lỗi:', err.message);
   }
@@ -252,14 +312,14 @@ async function xuLyKhongWeb({ problem, analysis, context, owner }) {
 
     if (result.meta && result.meta.matched === false) {
       logger.info(`🌳 Tiểu não fallback → Não trái bổ sung cây vào TIP cũ`);
-      return await boSungCayVaoTIPCu({ tipCu: tip, problem, context, owner, needCode, intent, source: 'kho2_extended' });
+      return await boSungCayVaoTIPCu({ tipCu: tip, problem, context, owner, needCode, intent, source: 'kho2_extended', userProfile });
     }
 
     return result;
   }
 
   logger.info(`📚 Không có TIP phù hợp → Não trái + Não phải`);
-  const newTip = await taoTIPMoi({ problem, context, owner, needCode, relatedTIPs, intent });
+  const newTip = await taoTIPMoi({ problem, context, owner, needCode, relatedTIPs, intent, userProfile, intentHistory });
 
   if (!newTip) {
     return { answer: '⚠️ Không tạo được TIP. Vui lòng thử lại hoặc thêm key.', source: 'error', meta: { reason: 'taoTIPMoi_fail' } };
@@ -287,18 +347,17 @@ async function chayTieuNao({ tip, problem, needCode, owner, context, source }) {
   }
 }
 
-async function boSungCayVaoTIPCu({ tipCu, problem, context, owner, needCode, intent, source }) {
+async function boSungCayVaoTIPCu({ tipCu, problem, context, owner, needCode, intent, source, userProfile }) {
   if (!tipCu._id) {
-    logger.warn('TIP cũ không có _id → không bổ sung được');
-    return { answer: '⚠️ Không mở rộng được TIP. Vui lòng thử lại.', source: 'error', meta: { reason: 'no_tip_id' } };
+    return { answer: '⚠️ Không mở rộng được TIP.', source: 'error', meta: { reason: 'no_tip_id' } };
   }
 
   let traiResult;
   try {
-    traiResult = await naoTrai.boSungCay({ tipCu, problem, owner });
+    traiResult = await naoTrai.boSungCay({ tipCu, problem, owner, userProfile });
   } catch (err) {
     logger.error(`Não trái bổ sung cây lỗi: ${err.message}`);
-    return { answer: '⚠️ Không mở rộng được TIP. Vui lòng thử lại.', source: 'error', meta: { error: err.message } };
+    return { answer: '⚠️ Không mở rộng được TIP.', source: 'error', meta: { error: err.message } };
   }
 
   const tipMoi = traiResult.tip;
@@ -338,16 +397,11 @@ function isTIPPhuHop(tip, needCode) {
   return true;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   TẠO TIP MỚI — LOOP 3 LẦN
-   [SỬA] Check issues severity high → loop bổ sung
-   ═══════════════════════════════════════════════════════════════ */
-
-async function taoTIPMoi({ problem, context, owner, needCode, relatedTIPs = [], intent = 'general' }) {
+async function taoTIPMoi({ problem, context, owner, needCode, relatedTIPs = [], intent = 'general', userProfile = null, intentHistory = [] }) {
   const contextRutGon = rutGonChoNao({ context, problem, recentCount: 20 });
 
   const problemForNao = needCode
-    ? `${problem}\n\n⚠️ User cần CODE. logicType="code", logicValue là code chạy được.`
+    ? `${problem}\n\n⚠️ User cần CODE. logicType="code".`
     : problem;
 
   const MAX_ATTEMPTS = 3;
@@ -363,12 +417,14 @@ async function taoTIPMoi({ problem, context, owner, needCode, relatedTIPs = [], 
         traiResult = await naoTrai.phanTich({
           problem: problemForNao, context: contextRutGon,
           relatedTIPs, webResults: '', owner,
+          userProfile, intentHistory,
         });
       } else {
         logger.info(`🧠 Não trái bổ sung [${missingFields.join(',')}] (${attempt}/${MAX_ATTEMPTS})`);
         traiResult = await naoTrai.boSung({
           tip: currentTip, missingFields,
           problem: problemForNao, needCode, owner,
+          userProfile, intentHistory,
         });
       }
     } catch (err) {
@@ -400,9 +456,7 @@ async function taoTIPMoi({ problem, context, owner, needCode, relatedTIPs = [], 
 
     let phaiResult;
     try {
-      phaiResult = await naoPhai.kiemChung({
-        tip: currentTip, originalProblem: problem, owner,
-      });
+      phaiResult = await naoPhai.kiemChung({ tip: currentTip, originalProblem: problem, owner });
     } catch (err) {
       logger.error(`Não phải lỗi lần ${attempt}:`, err.message);
       continue;
@@ -410,19 +464,16 @@ async function taoTIPMoi({ problem, context, owner, needCode, relatedTIPs = [], 
 
     const evalRes = phaiResult.evaluation;
 
-    /* [SỬA] Check issues severity high trước tiên */
     const highIssues = (evalRes.issues || []).filter((i) => i.severity === 'high');
     if (highIssues.length > 0) {
       logger.warn(`⚠️ Não phải có ${highIssues.length} issue high → Não trái bổ sung`);
       let missing = [...new Set(highIssues.map((i) => i.field).filter(Boolean))];
-      // Đảm bảo có ít nhất 1 trường để bổ sung
       if (missing.length === 0) missing = ['patterns'];
       missingFields = missing;
       continue;
     }
 
     if (evalRes.testsFailed) {
-      logger.warn(`Tests fail → Não trái bổ sung logicValue`);
       missingFields = ['logicValue'];
       continue;
     }
@@ -440,7 +491,7 @@ async function taoTIPMoi({ problem, context, owner, needCode, relatedTIPs = [], 
   }
 
   if (!currentTip) {
-    logger.warn(naoTraiLoi ? 'Não trái lỗi toàn bộ 3 lần' : 'Không có TIP sau 3 lần');
+    logger.warn(naoTraiLoi ? 'Não trái lỗi 3 lần' : 'Không có TIP sau 3 lần');
     return null;
   }
 
@@ -471,5 +522,5 @@ function checkMachineFields(tip) {
 module.exports = {
   xuLy, phanTichYeuCau, phanTichBangRule, phanTichBangContext,
   ketHopPhanTich, extractKeywords, isTIPPhuHop, capNhatContext,
-  checkMachineFields, boSungCayVaoTIPCu,
+  checkMachineFields, boSungCayVaoTIPCu, detectLangCan, detectProjectType,
 };

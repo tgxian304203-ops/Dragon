@@ -1,6 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 PROMPT — NÃO TRÁI
-   - QUY TẮC CỨNG: patterns PHẢI đúng chủ đề, KHÔNG sinh lạc
+   - Sinh TIP 14 trường + 4 trường máy + cây JSON (100 rules)
+   - Nhận context user (profile, intent history)
+   - Patterns/keywords ĐÚNG CHỦ ĐỀ
    ═══════════════════════════════════════════════════════════════ */
 
 const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho Kho 2.
@@ -64,101 +66,86 @@ const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho
 🚨 QUY TẮC CỨNG — CHỌN logicType
 ═══════════════════════════════════════════════════
 
-▶ PHÉP TÍNH (cộng/trừ/nhân/chia/mũ):
-   → logicType = "expr", logicValue = "a + b", category = "math"
-
-▶ VIẾT CODE / HÀM:
-   → logicType = "code", logicValue = code chạy được, category = "code"
-
-▶ SỬA CODE / BUG:
-   → logicType = "patch", category = "bugfix"
-
-▶ GIẢI THÍCH / KHÁI NIỆM:
-   → logicType = "", category = "explain"
-
-▶ KHÁC:
-   → logicType = "", category = "general"
+▶ PHÉP TÍNH: logicType="expr", logicValue="a + b", category="math"
+▶ VIẾT CODE: logicType="code", category="code"
+▶ SỬA CODE: logicType="patch", category="bugfix"
+▶ GIẢI THÍCH: logicType="", category="explain"
+▶ KHÁC: logicType="", category="general"
 
 ═══════════════════════════════════════════════════
 🎯 QUY TẮC CỨNG — CHỌN NGÔN NGỮ CODE
 ═══════════════════════════════════════════════════
 
-▶ WEB / SHOP / LANDING / FORM / DASHBOARD / HTML / SPCK / UI:
-   → HTML + CSS + JS SINGLE-FILE (bắt đầu bằng <!DOCTYPE html>)
+▶ HTML/WEB/SHOP/SPCK/UI → HTML + CSS + JS SINGLE-FILE (<!DOCTYPE html>)
+▶ PYTHON — CHỈ khi user NÓI RÕ "python" hoặc "py"
+▶ SCRIPT/AUTOMATION/BACKEND — mặc định HTML/JS nếu user dùng SPCK, Python nếu không rõ
+▶ NODE.JS/EXPRESS → JavaScript
+▶ USER NÓI RÕ → THEO USER
 
-▶ SCRIPT / AUTOMATION / BACKEND / CLI / DATA / MATH / ML / AI:
-   → Python
-
-▶ NODE.JS / EXPRESS:
-   → JavaScript (Node.js)
-
-▶ USER NÓI RÕ NGÔN NGỮ:
-   → THEO USER
-
-▶ KHÔNG RÕ:
-   → "shop"/"web"/"UI" → HTML/CSS/JS
-   → "tính toán"/"script" → Python
+🚨 QUY TẮC QUAN TRỌNG NHẤT:
+Nếu câu hỏi CÓ "spck" HOẶC "html" HOẶC "web" HOẶC "ui" → LUÔN chọn HTML/JS.
+KHÔNG chọn Python chỉ vì có chữ "api", "ai", "script".
 
 ═══════════════════════════════════════════════════
-🚨 QUY TẮC CỨNG — SINH patterns ĐÚNG CHỦ ĐỀ
+🚨 QUY TẮC CỨNG — patterns ĐÚNG CHỦ ĐỀ
 ═══════════════════════════════════════════════════
 
-🔥 BẮT BUỘC — patterns PHẢI:
+patterns PHẢI:
+1. CHỈ chứa từ khóa CÙNG CHỦ ĐỀ với câu hỏi user
+2. KHÔNG copy pattern từ ví dụ
+3. KHÔNG trộn chủ đề (VD Python + shop)
 
-1. CHỈ sinh pattern CÙNG CHỦ ĐỀ với câu hỏi user
-2. KHÔNG sinh pattern lạc chủ đề
-3. KHÔNG copy pattern từ ví dụ
-
-📌 VÍ DỤ SAI — TUYỆT ĐỐI KHÔNG LÀM:
-
+📌 VÍ DỤ SAI:
 User hỏi: "viết hàm giai thừa Python"
-❌ SAI: patterns = ["viết hàm giai thừa", "tạo shop bán đồng hồ", "làm web"]   ← LẠC CHỦ ĐỀ
-✅ ĐÚNG: patterns = ["viết hàm giai thừa", "code giai thừa python", "hàm tính giai thừa", "viết code đệ quy", "factorial python"]
+❌ patterns = ["viết hàm giai thừa", "tạo shop bán đồng hồ", "làm web"]
+✅ patterns = ["viết hàm giai thừa", "code giai thừa python", "hàm tính giai thừa", ...]
 
-User hỏi: "tạo web shop bán đồng hồ"
-❌ SAI: patterns = ["tạo shop", "viết hàm", "tính giai thừa"]   ← LẠC CHỦ ĐỀ
-✅ ĐÚNG: patterns = ["tạo web shop", "làm shop html", "web bán đồng hồ", "trang web bán hàng", "shop online"]
-
-📌 QUY TẮC CỤ THỂ:
-
-- Nếu user hỏi về CODE PYTHON → patterns chỉ chứa từ khóa Python
-- Nếu user hỏi về HTML/WEB → patterns chỉ chứa từ khóa web/html
-- Nếu user hỏi về TOÁN → patterns chỉ chứa từ khóa toán
-- KHÔNG bao giờ trộn chủ đề
+User hỏi: "tạo shop HTML cho spck"
+❌ patterns = ["tạo shop", "viết hàm", "tính giai thừa"]
+✅ patterns = ["tạo shop html", "làm web spck", "shop html cho điện thoại", ...]
 
 ═══════════════════════════════════════════════════
-🚨 QUY TẮC CỨNG — SINH keywords ĐÚNG CHỦ ĐỀ
+🌳 QUY TẮC CỨNG — SINH cayQuyetDinhJson SIÊU RỘNG
 ═══════════════════════════════════════════════════
 
-keywords PHẢI:
-1. CHỈ liên quan chủ đề
-2. Bao gồm: từ chính, đồng nghĩa, tiếng Anh, sai chính tả
-3. KHÔNG sinh keyword lạc chủ đề
-
-📌 VÍ DỤ:
-- TIP "phép cộng" → keywords = ["cộng", "tổng", "addition", "sum", "+", "plus", "add", "cong"]
-- TIP "HTML shop" → keywords = ["web", "shop", "html", "css", "trang web", "bán hàng", "spck"]
-- TIP "Python factorial" → keywords = ["giai thừa", "factorial", "đệ quy", "python", "recursive"]
-
-═══════════════════════════════════════════════════
-🌳 QUY TẮC CỨNG — SINH cayQuyetDinhJson
-═══════════════════════════════════════════════════
-
-🚨 cayQuyetDinhJson phải:
+🚨 BẮT BUỘC — cayQuyetDinhJson phải:
 1. Cấu trúc: { category, rules: [...], fallback: {...} }
-2. 30-50 rules cover MỌI biến thể
+2. **Sinh 100 RULES** cover MỌI biến thể có thể của chủ đề
 3. Mỗi rule: { if: "điều kiện", then: { logicType, logicValue, outputTpl } }
 4. Điều kiện "if" dùng BIẾN CHUẨN
+5. **KHÔNG được có rules lạc chủ đề**
 
-📌 BIẾN CHUẨN THEO CATEGORY:
+📌 BIẾN CHUẨN:
 
-▶ MATH: soLuongSo, coSoAm, coSoThapPhan, coSo0, tuKhoa, a, b, c, d, e, f, g, h
+▶ MATH:
+   soLuongSo, coSoAm, coSoThapPhan, coSo0, tuKhoa, a, b, c, d, e, f, g, h
 
-▶ CODE: ngonNgu, loai, tenHam, thamSo, mucDich
+▶ CODE:
+   ngonNgu, loai, tenHam, thamSo, mucDich, hasImage, hasForm, hasButton, hasCart
 
-▶ BUGFIX: loaiLoi, ngonNgu, dongLoi, noiDungLoi
+▶ BUGFIX:
+   loaiLoi, ngonNgu, dongLoi, noiDungLoi
 
-▶ EXPLAIN: loaiVan, doDai, chuDe, giongVan
+▶ EXPLAIN:
+   loaiVan, doDai, chuDe, giongVan
+
+📌 VÍ DỤ 100 RULES CHO PHÉP CỘNG:
+
+Sinh rules theo mọi kết hợp:
+- soLuongSo == 2, 3, 4, 5, 6, 7, 8, >= 9
+- coSoAm == true, coSoThapPhan == true, coSo0 == true
+- tuKhoa == 'cộng', 'tổng', 'plus', 'add', 'sum'
+- Kết hợp: soLuongSo == 3 && coSoAm == true
+- v.v... → CÀNG NHIỀU RULES CÀNG TỐT (tối thiểu 100)
+
+📌 VÍ DỤ 100 RULES CHO HTML SHOP:
+
+- ngonNgu == 'html' && loai == 'shop' && hasCart == false
+- ngonNgu == 'html' && loai == 'shop' && hasCart == true
+- ngonNgu == 'html' && loai == 'shop' && hasButton == true
+- ngonNgu == 'html' && loai == 'form'
+- ngonNgu == 'html' && loai == 'dashboard'
+- v.v... → CÀNG NHIỀU CÀNG TỐT
 
 ═══════════════════════════════════════════════════
 📚 VÍ DỤ ĐÚNG — PHÉP CỘNG
@@ -167,48 +154,31 @@ keywords PHẢI:
 "category": "math"
 "patterns": [
   "{a} cộng {b}", "{a} + {b}", "tính {a} cộng {b}",
-  "tổng của {a} và {b}", "{a} cộng với {b}", "cộng {a} {b}"
+  "tổng của {a} và {b}", "{a} cộng với {b}"
 ]
 "keywords": ["cộng", "tổng", "addition", "sum", "+", "cong", "add", "plus"]
 "logicType": "expr"
 "logicValue": "a + b"
 "outputTpl": "{a} + {b} = **{kq}**"
+"cayQuyetDinhJson": {
+  "category": "math",
+  "rules": [ ... 100 rules ... ]
+}
 
 ═══════════════════════════════════════════════════
-📚 VÍ DỤ ĐÚNG — PYTHON FACTORIAL
+📚 VÍ DỤ ĐÚNG — HTML SHOP (cho spck)
 ═══════════════════════════════════════════════════
 
 "category": "code"
 "patterns": [
-  "viết hàm giai thừa", "code giai thừa python", "hàm tính giai thừa",
-  "viết code đệ quy", "factorial python", "tạo hàm đệ quy",
-  "hàm factorial", "tính giai thừa bằng đệ quy"
+  "tạo web shop", "làm shop html", "shop html cho spck",
+  "web shop cho điện thoại", "trang web bán hàng", "shop online",
+  "code shop html", "html shop mobile", "web bán đồng hồ"
 ]
-"keywords": ["giai thừa", "factorial", "đệ quy", "recursive", "python", "hàm"]
+"keywords": ["web", "shop", "html", "css", "spck", "trang web", "bán hàng", "đồng hồ", "js", "mobile"]
 "logicType": "code"
-"logicValue": "def factorial(n):\\n    if n <= 1: return 1\\n    return n * factorial(n - 1)\\nprint(factorial(5))"
-"outputTpl": "**Code Python:**\\n\\n\\\`\\\`\\\`python\\n{kq}\\n\\\`\\\`\\\`"
-
-❌ KHÔNG ĐƯỢC thêm pattern "tạo shop" hay "làm web" vào TIP này.
-
-═══════════════════════════════════════════════════
-📚 VÍ DỤ ĐÚNG — HTML SHOP
-═══════════════════════════════════════════════════
-
-User: "tạo web shop bán đồng hồ"
-
-"category": "code"
-"patterns": [
-  "tạo web shop", "làm shop html", "web bán đồng hồ",
-  "trang web bán hàng", "shop online", "tạo trang web bán",
-  "làm web shop", "code web shop", "html shop"
-]
-"keywords": ["web", "shop", "html", "css", "trang web", "bán hàng", "spck", "đồng hồ", "js"]
-"logicType": "code"
-"logicValue": "<!DOCTYPE html>...đầy đủ HTML/CSS/JS... </html>"
-"outputTpl": "**Code shop:**\\n\\n\\\`\\\`\\\`html\\n{kq}\\n\\\`\\\`\\\`"
-
-❌ KHÔNG ĐƯỢC thêm pattern "viết hàm giai thừa" vào TIP này.
+"logicValue": "<!DOCTYPE html>...đầy đủ HTML/CSS/JS...</html>"
+"outputTpl": "**Code HTML shop:**\\n\\n\\\`\\\`\\\`html\\n{kq}\\n\\\`\\\`\\\`"
 
 ═══════════════════════════════════════════════════
 🚫 QUY TẮC BẮT BUỘC CUỐI
@@ -221,17 +191,33 @@ User: "tạo web shop bán đồng hồ"
 6. keywords 8-12 từ CÙNG CHỦ ĐỀ.
 7. TIẾNG VIỆT.
 8. Ký tự đầu = {, cuối = }.
-9. 🚨 patterns KHÔNG LẠC CHỦ ĐỀ — đây là quy tắc quan trọng nhất.
+9. 🚨 patterns KHÔNG LẠC CHỦ ĐỀ.
 10. 🚨 keywords KHÔNG LẠC CHỦ ĐỀ.
-11. cayQuyetDinhJson có 30-50 rules.
+11. 🚨 cayQuyetDinhJson có **100 RULES**, KHÔNG LẠC CHỦ ĐỀ.
+12. 🚨 Nếu câu hỏi có "spck"/"html"/"web"/"ui" → **LUÔN HTML/JS**.
 
 ═══════════════════════════════════════════════════
-BẮT ĐẦU TRẢ JSON NGAY (KHÔNG GIẢI THÍCH)
+BẮT ĐẦU TRẢ JSON NGAY
 ═══════════════════════════════════════════════════`;
 
-function buildUserMessage({ problem, context = '', relatedTIPs = [], webResults = '' }) {
+function buildUserMessage({ problem, context = '', relatedTIPs = [], webResults = '', userProfile = null, intentHistory = [] }) {
   const parts = [];
   parts.push(`📌 VẤN ĐỀ:\n${problem}`);
+
+  if (userProfile) {
+    parts.push(`\n👤 USER PROFILE:`);
+    if (userProfile.preferredLang) parts.push(`- Ngôn ngữ ưa thích: ${userProfile.preferredLang}`);
+    if (userProfile.techStack?.length) parts.push(`- Tech stack: ${userProfile.techStack.join(', ')}`);
+    if (userProfile.commonProjects?.length) parts.push(`- Loại dự án hay làm: ${userProfile.commonProjects.join(', ')}`);
+    if (userProfile.preferredEditor) parts.push(`- Editor: ${userProfile.preferredEditor}`);
+    if (userProfile.skillLevel) parts.push(`- Trình độ: ${userProfile.skillLevel}`);
+  }
+
+  if (intentHistory?.length) {
+    const recent = intentHistory.slice(-10).join(' → ');
+    parts.push(`\n📊 LỊCH SỬ INTENT (10 gần nhất): ${recent}`);
+  }
+
   if (context) parts.push(`\n🧠 NGỮ CẢNH:\n${context}`);
 
   if (relatedTIPs && relatedTIPs.length > 0) {
@@ -250,19 +236,12 @@ function buildUserMessage({ problem, context = '', relatedTIPs = [], webResults 
   parts.push(`- SỬA CODE → logicType="patch"`);
   parts.push(``);
   parts.push(`🎯 CHỌN NGÔN NGỮ:`);
-  parts.push(`- "shop"/"web"/"html"/"css"/"spck" → HTML/CSS/JS`);
-  parts.push(`- "tính toán"/"script"/"backend" → Python`);
+  parts.push(`- Có "spck"/"html"/"web"/"ui" → HTML/CSS/JS`);
+  parts.push(`- CHỈ chọn Python khi user NÓI RÕ "python"`);
   parts.push(``);
-  parts.push(`🚨 QUY TẮC QUAN TRỌNG NHẤT — patterns ĐÚNG CHỦ ĐỀ:`);
-  parts.push(`- patterns PHẢI chỉ chứa từ khóa CÙNG CHỦ ĐỀ với câu hỏi user`);
-  parts.push(`- VD user hỏi Python → patterns chỉ có Python (KHÔNG có "shop", "web")`);
-  parts.push(`- VD user hỏi HTML shop → patterns chỉ có web/shop (KHÔNG có "hàm", "factorial")`);
-  parts.push(`- KHÔNG copy pattern từ ví dụ, KHÔNG trộn chủ đề`);
-  parts.push(``);
-  parts.push(`🚨 keywords cũng PHẢI CÙNG CHỦ ĐỀ.`);
-  parts.push(``);
-  parts.push(`🌳 cayQuyetDinhJson: 30-50 rules.`);
-  parts.push(`⚠️ CHỈ JSON, bắt đầu bằng { và kết thúc bằng }.`);
+  parts.push(`🚨 patterns + keywords PHẢI CÙNG CHỦ ĐỀ — không trộn.`);
+  parts.push(`🚨 cayQuyetDinhJson PHẢI có 100 RULES.`);
+  parts.push(`⚠️ CHỈ JSON.`);
   return parts.join('\n');
 }
 

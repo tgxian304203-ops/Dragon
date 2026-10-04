@@ -1,5 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 CONTEXT — Kho 1 — 14 trường text + category
+   🧠 CONTEXT — Kho 1
+   - 14 trường text + category + keywords
+   - [MỚI] intentHistory, userProfileSnapshot, extendedContext
    ═══════════════════════════════════════════════════════════════ */
 
 const mongoose = require('mongoose');
@@ -30,10 +32,28 @@ const contextSchema = new mongoose.Schema(
 
     category: { type: String, default: 'general' },
     keywords: { type: [String], default: [] },
+
+    /* ═══ [MỚI] Mở rộng — cho Rồng Thần hiểu hơn ═══ */
+    intentHistory: {
+      type: [String],
+      default: [],
+      // VD ["code", "code", "math", "code"] — giới hạn 50 phần tử cuối
+    },
+    userProfileSnapshot: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+      // Snapshot profile user tại thời điểm này — để debug + phục hồi
+    },
+    extendedContext: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+      // Chỗ linh hoạt cho tương lai
+    },
   },
   { timestamps: true, collection: 'contexts' }
 );
 
 contextSchema.index({ conversationId: 1, createdAt: -1 });
+contextSchema.index({ userId: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Context', contextSchema);
