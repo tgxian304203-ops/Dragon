@@ -1,8 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    🐉 RỒNG THẦN — FRONTEND LOGIC
-   - Canvas vẽ dùng Pointer Events — chạy mọi thiết bị
-   - Bỏ crossOrigin — ảnh blob URL load được
-   - Nút tẩy xóa nét
+   - Thêm nút X xóa project + xóa conversation
+   - Fix nút bấm project/conv
    ═══════════════════════════════════════════════════════════════ */
 
 const API = {
@@ -20,6 +19,7 @@ const API = {
   recentList:    '/api/recent',
   projectList:   '/api/project',
   projectCreate: '/api/project',
+  projectDel:    (id) => `/api/project/${id}`,
   projectConvs:  (id) => `/api/project/${id}/conversations`,
   shareCreate:   '/api/share',
   settingsPw:    '/api/settings/password',
@@ -47,6 +47,12 @@ const SVG_SUN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fil
   <path d="M20 12h2"/>
   <path d="m6.34 17.66-1.41 1.41"/>
   <path d="m19.07 4.93-1.41 1.41"/>
+</svg>`;
+
+const SVG_X = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+  stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+  <line x1="18" y1="6" x2="6" y2="18"/>
+  <line x1="6" y1="6" x2="18" y2="18"/>
 </svg>`;
 
 const $ = (s) => document.querySelector(s);
@@ -443,6 +449,39 @@ async function checkAuthStatus() {
   updateUserMenu();
 }
 
+/* ═══ HELPER — Tạo row cho menu item có nút X ═══ */
+/**
+ * Tạo 1 dòng menu-item có nút X bên phải.
+ * @param {string} label - Text hiển thị
+ * @param {Function} onClick - Hàm khi bấm vào label
+ * @param {Function} onDelete - Hàm khi bấm X
+ * @param {object} opts - { className }
+ */
+function createMenuItemWithDelete(label, onClick, onDelete, opts = {}) {
+  const row = document.createElement('div');
+  row.className = 'menu-item-row';
+
+  const btn = document.createElement('button');
+  btn.className = 'menu-item sub' + (opts.className ? ' ' + opts.className : '');
+  btn.textContent = label;
+  btn.addEventListener('click', onClick);
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'item-del';
+  delBtn.innerHTML = SVG_X;
+  delBtn.setAttribute('aria-label', 'Xóa');
+  delBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onDelete();
+  });
+
+  row.appendChild(btn);
+  row.appendChild(delBtn);
+
+  return row;
+}
+
 /* ═══ BRAIN KEYS ═══ */
 function renderKeys(containerEl, keys) {
   containerEl.innerHTML = '';
@@ -557,6 +596,51 @@ async function deleteBrainKey(id) {
 $('#btn-run-left').addEventListener('click', () => addBrainKey('left'));
 $('#btn-run-right').addEventListener('click', () => addBrainKey('right'));
 
+/* ═══ [MỚI] XÓA PROJECT ═══ */
+async function deleteProject(projectId, projectName = '') {
+  if (!projectId) return;
+  if (!confirm(`Xóa dự án "${projectName || 'này'}"? Các cuộc trò chuyện sẽ được gỡ khỏi dự án.`)) return;
+
+  try {
+    const res = await apiFetch(API.projectDel(projectId), { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    showToast('Đã xóa dự án');
+    await loadProjects();
+  } catch (err) {
+    showToast('Lỗi xóa dự án: ' + err.message);
+  }
+}
+
+/* ═══ [MỚI] XÓA CONVERSATION ═══ */
+async function deleteConversation(convId, title = '') {
+  if (!convId) return;
+  if (!confirm(`Xóa cuộc trò chuyện "${title || 'này'}"?`)) return;
+
+  try {
+    const res = await apiFetch(API.chatDelete(convId), { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    // Nếu đang mở conv này → reset
+    if (currentConversationId === convId) {
+      currentConversationId = null;
+      clearChat();
+      clearAttachments();
+      appendMessage('ai', CHAO_AI);
+    }
+
+    showToast('Đã xóa cuộc trò chuyện');
+    await loadRecent();
+  } catch (err) {
+    showToast('Lỗi xóa: ' + err.message);
+  }
+}
+
 /* ═══ RECENT ═══ */
 async function loadRecent() {
   const list = $('#recent-list');
@@ -573,12 +657,12 @@ async function loadRecent() {
     }
 
     items.slice(0, 10).forEach((item) => {
-      const btn = document.createElement('button');
-      btn.className = 'menu-item sub';
-      btn.textContent = item.title || 'Cuộc trò chuyện';
-      btn.dataset.id = item.id;
-      btn.addEventListener('click', () => openConversation(item.id));
-      list.appendChild(btn);
+      const row = createMenuItemWithDelete(
+        item.title || 'Cuộc trò chuyện',
+        () => openConversation(item.id),
+        () => deleteConversation(item.id, item.title),
+      );
+      list.appendChild(row);
     });
   } catch {
     list.innerHTML = '<div class="menu-empty">Không tải được</div>';
@@ -601,12 +685,12 @@ async function loadProjects() {
     }
 
     items.forEach((item) => {
-      const btn = document.createElement('button');
-      btn.className = 'menu-item sub';
-      btn.textContent = item.name || 'Dự án';
-      btn.dataset.id = item.id;
-      btn.addEventListener('click', () => openProject(item.id, item.name));
-      list.appendChild(btn);
+      const row = createMenuItemWithDelete(
+        item.name || 'Dự án',
+        () => openProject(item.id, item.name),
+        () => deleteProject(item.id, item.name),
+      );
+      list.appendChild(row);
     });
   } catch {
     list.innerHTML = '<div class="menu-empty">Không tải được</div>';
@@ -626,12 +710,14 @@ async function openProject(projectId, projectName = '') {
     const list = $('#recent-list');
     list.innerHTML = '';
 
+    // Nút quay lại
     const backBtn = document.createElement('button');
     backBtn.className = 'menu-item sub';
     backBtn.textContent = '← Quay lại gần đây';
     backBtn.addEventListener('click', () => loadRecent());
     list.appendChild(backBtn);
 
+    // Tiêu đề dự án
     const titleEl = document.createElement('div');
     titleEl.className = 'menu-empty';
     titleEl.style.fontStyle = 'normal';
@@ -648,15 +734,15 @@ async function openProject(projectId, projectName = '') {
     }
 
     items.forEach((item) => {
-      const btn = document.createElement('button');
-      btn.className = 'menu-item sub';
-      btn.textContent = item.title || 'Cuộc trò chuyện';
-      btn.dataset.id = item.id;
-      btn.addEventListener('click', () => {
-        openConversation(item.id);
-        closeMenu('left');
-      });
-      list.appendChild(btn);
+      const row = createMenuItemWithDelete(
+        item.title || 'Cuộc trò chuyện',
+        () => {
+          openConversation(item.id);
+          closeMenu('left');
+        },
+        () => deleteConversation(item.id, item.title),
+      );
+      list.appendChild(row);
     });
   } catch (err) {
     showToast('Không mở được dự án: ' + err.message);
@@ -1000,10 +1086,7 @@ fileInputFile.addEventListener('change', () => {
   fileInputFile.value = '';
 });
 
-/* ═══════════════════════════════════════════════════════════════
-   MODAL VẼ ẢNH — POINTER EVENTS, KHÔNG crossOrigin
-   ═══════════════════════════════════════════════════════════════ */
-
+/* ═══ MODAL VẼ ẢNH ═══ */
 const modalDraw = $('#modal-draw');
 const drawCanvas = $('#draw-canvas');
 const drawUndo = $('#draw-undo');
@@ -1021,7 +1104,6 @@ let strokes = [];
 let currentStroke = null;
 let isDrawing = false;
 
-/* Mở modal vẽ */
 function openDrawModal(attachmentId) {
   const att = pendingAttachments.find((a) => a.id === attachmentId);
   if (!att || att.type !== 'image') {
@@ -1070,7 +1152,6 @@ function openDrawModal(attachmentId) {
   img.src = att.previewUrl;
 }
 
-/* Vẽ lại ảnh gốc + tất cả nét */
 function redrawAll() {
   if (!canvasCtx || !currentImage) return;
 
@@ -1097,7 +1178,6 @@ function redrawAll() {
   canvasCtx.globalCompositeOperation = 'source-over';
 }
 
-/* Vẽ 1 đoạn trực tiếp */
 function drawStrokeSegment(stroke, fromIdx) {
   if (!canvasCtx) return;
   const pts = stroke.points;
@@ -1118,7 +1198,6 @@ function drawStrokeSegment(stroke, fromIdx) {
   canvasCtx.globalCompositeOperation = 'source-over';
 }
 
-/* Vị trí trong canvas */
 function getCanvasPos(e) {
   const rect = drawCanvas.getBoundingClientRect();
   return {
@@ -1127,7 +1206,6 @@ function getCanvasPos(e) {
   };
 }
 
-/* Pointer handlers */
 function onPointerDown(e) {
   if (!canvasCtx) return;
   e.preventDefault();
@@ -1173,7 +1251,6 @@ drawCanvas.addEventListener('pointerup', onPointerUp);
 drawCanvas.addEventListener('pointercancel', onPointerUp);
 drawCanvas.addEventListener('pointerleave', onPointerUp);
 
-/* Chọn màu */
 drawTools.forEach((tool) => {
   tool.addEventListener('click', () => {
     drawTools.forEach((t) => t.classList.remove('active'));
@@ -1184,7 +1261,6 @@ drawTools.forEach((tool) => {
   });
 });
 
-/* Nút tẩy */
 drawEraser.addEventListener('click', () => {
   isEraser = !isEraser;
   drawEraser.classList.toggle('active', isEraser);
@@ -1199,14 +1275,12 @@ drawEraser.addEventListener('click', () => {
   }
 });
 
-/* Undo */
 drawUndo.addEventListener('click', () => {
   if (strokes.length === 0) return;
   strokes.pop();
   redrawAll();
 });
 
-/* Hủy */
 drawCancel.addEventListener('click', () => {
   modalDraw.classList.add('hidden');
   currentAttachmentId = null;
@@ -1216,7 +1290,6 @@ drawCancel.addEventListener('click', () => {
   currentImage = null;
 });
 
-/* Xong — xuất canvas */
 drawDone.addEventListener('click', () => {
   if (!currentAttachmentId || !canvasCtx) return;
 
