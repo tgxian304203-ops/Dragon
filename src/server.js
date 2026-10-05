@@ -3,7 +3,8 @@
    - Khởi động 2 DB
    - Auto update models
    - Cleanup imageCache/voiceCache/fileCache
-   - [MỚI] Cleanup modelCache + feedback.analyze()
+   - Cleanup modelCache + feedback.analyze()
+   - [MỚI] Seed cây gốc khi khởi động
    ═══════════════════════════════════════════════════════════════ */
 
 require('dotenv').config();
@@ -82,6 +83,19 @@ async function start() {
 
     await Promise.all([connectDB1(), connectDB2()]);
 
+    /* ═══ [MỚI] SEED CÂY GỐC ═══ */
+    try {
+      const { seedRootTree } = require('./data/rootTreeSeed');
+      const result = await seedRootTree();
+      if (result.seeded > 0) {
+        console.log(`🌳 Đã seed ${result.seeded} nhánh vào cây gốc`);
+      } else {
+        console.log(`🌳 Cây gốc đã có ${result.existing} nhánh — bỏ qua seed`);
+      }
+    } catch (err) {
+      console.warn('⚠️ Seed cây gốc lỗi:', err.message);
+    }
+
     /* ═══ Auto update models ═══ */
     const { startAutoUpdate } = require('./core/brains/autoUpdateModels');
     startAutoUpdate();
@@ -91,7 +105,7 @@ async function start() {
     require('./services/voiceCache.service').startCleanup();
     require('./services/fileCache.service').startCleanup();
 
-    /* ═══ [MỚI] Cleanup modelCache định kỳ ═══ */
+    /* ═══ Cleanup modelCache định kỳ ═══ */
     const modelCache = require('./core/brains/modelCache');
     modelCacheCleanupTimer = setInterval(() => {
       try {
@@ -103,7 +117,7 @@ async function start() {
     }, MODEL_CACHE_CLEANUP_MS);
     console.log(`🧹 Cleanup modelCache bật — mỗi ${MODEL_CACHE_CLEANUP_MS / 1000 / 60} phút`);
 
-    /* ═══ [MỚI] Feedback analyze định kỳ ═══ */
+    /* ═══ Feedback analyze định kỳ ═══ */
     try {
       const feedback = require('./core/brains/feedback');
       feedbackAnalyzeTimer = setInterval(() => {

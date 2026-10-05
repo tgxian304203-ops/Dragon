@@ -1,11 +1,17 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 PROMPT — NÃO TRÁI
-   - expr: dùng 9 biến a-i
-   - code: code cụ thể, KHÔNG placeholder
-   - Rule soLuongSo == N → dùng ĐÚNG N biến
+   - Sinh 1 nhánh mới trong cây gốc
+   - Nhận cha + mẹ (nếu con lai)
+   - Kế thừa từ cha mẹ
    ═══════════════════════════════════════════════════════════════ */
 
-const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho Kho 2.
+const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh 1 NHÁNH MỚI cho CÂY GỐC.
+
+=== NGUYÊN TẮC CÂY GIA ĐÌNH ===
+1. Cây gốc là cây gia đình — mỗi nhánh là 1 thành viên
+2. Muốn có con phải có cha — sinh tuần tự từ trên xuống
+3. Con LAi có gen mới — kết hợp gen cha + mẹ + luật mới
+4. Gen không mất — kế thừa gián tiếp qua cha mẹ
 
 === QUY TẮC OUTPUT ===
 1. CHỈ trả JSON THUẦN.
@@ -14,19 +20,20 @@ const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho
 
 === ĐẦU RA JSON ===
 {
+  "name": "Tên nhánh",
   "nguyenLy": "...", "quyTac": "...", "dieuKien": "...", "cayQuyetDinh": "...",
   "phuongPhap": "...", "thuatToan": "...", "workflow": "...", "suyLuan": "...",
   "testCase": "...", "kiemChung": "...", "ngoaiLe": "...", "caseKinhNghiem": "...",
-  "quanHe": [...], "nguonPhienBan": "...",
-  "category": "math|code|bugfix|explain|general",
+  "quanHe": [...], "nguonPhienBan": "Rồng Thần v2.0",
+  "category": "math|code|van|explain|general",
   "keywords": [...],
   "patterns": [...],
-  "logicType": "expr",
-  "logicValue": "a + b",
-  "outputTpl": "{a} + {b} = **{kq}**",
+  "logicType": "expr|code|patch|",
+  "logicValue": "...",
+  "outputTpl": "...",
   "tests": [...],
   "cayQuyetDinhJson": {
-    "category": "math",
+    "category": "...",
     "rules": [...],
     "fallback": {...}
   }
@@ -35,51 +42,48 @@ const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho
 === QUY TẮC CỰC QUAN TRỌNG ===
 
 LOẠI 1 — logicType="expr" (TOÁN):
-- Có 9 biến: a, b, c, d, e, f, g, h, i
+- Dùng 9 biến: a, b, c, d, e, f, g, h, i
 - CẤM số cứng: 1, 2, 3, 4, 5
 
-ĐÚNG: "a + b", "a + b + c", "a * b", "a ^ b"
-SAI: "1 + 2", "5 + 10", "1 + 2 + 3"
+ĐÚNG: "a + b", "a + b + c", "a * b"
+SAI: "1 + 2", "5 + 10"
 
 LOẠI 2 — logicType="code" (CODE):
 - Code CỤ THỂ
 - CẤM placeholder {a}, {b}, {c}
 
 ĐÚNG:
-"logicValue": "<!DOCTYPE html>\\n<html>\\n<head>\\n<title>Shop Đồng Hồ</title>\\n</head>\\n<body>\\n<h1>Shop Đồng Hồ</h1>\\n</body>\\n</html>"
+"logicValue": "<!DOCTYPE html>\\n<html>\\n<head>\\n<title>Shop Đồng Hồ</title>\\n</head>\\n<body>\\n</body>\\n</html>"
 
 SAI:
 "logicValue": "<title>{a}</title>"
 
-=== QUY TẮC ĐẶC BIỆT — RULE PHẢI KHỚP SỐ BIẾN ===
+LOẠI 3 — logicType="patch" (SỬA CODE):
+- Code đã sửa
+- CẤM placeholder
 
-🚨 Khi sinh cayQuyetDinhJson.rules cho PHÉP CỘNG:
+=== QUY TẮC KẾ THỪA TỪ CHA MẸ ===
 
-Rule "soLuongSo == 2" → logicValue CHỈ "a + b", outputTpl CHỈ "{a} + {b} = **{kq}**"
-Rule "soLuongSo == 3" → logicValue CHỈ "a + b + c", outputTpl CHỈ "{a} + {b} + {c} = **{kq}**"
-Rule "soLuongSo == 4" → logicValue CHỈ "a + b + c + d"
-Rule "soLuongSo == 5" → logicValue CHỈ "a + b + c + d + e"
-Rule "soLuongSo == 6" → logicValue CHỈ "a + b + c + d + e + f"
-Rule "soLuongSo == 7" → logicValue CHỈ "a + b + c + d + e + f + g"
-Rule "soLuongSo == 8" → logicValue CHỈ "a + b + c + d + e + f + g + h"
-Rule "soLuongSo == 9" → logicValue CHỈ "a + b + c + d + e + f + g + h + i"
-Rule "soLuongSo >= 10" → logicValue "sum([a, b, c, d, e, f, g, h, i])", outputTpl "Tổng = **{kq}**"
+🚨 Đây là CON LAI — kết hợp gen cha + mẹ:
 
-🚨 TUYỆT ĐỐI KHÔNG:
-- Rule "soLuongSo == 2" mà logicValue "a + b + c + d + e" → SAI
-- Rule "soLuongSo == 5" mà outputTpl "{a} + {b} = **{kq}**" → SAI
+Nếu cha là "phép cộng" (gen: a + b) và mẹ là "phép nhân" (gen: c * d):
+→ Con "cộng nhân" có gen MỚI: "a + b * c" (nhân trước cộng sau)
+→ Gen này KHÁC cha, KHÁC mẹ, KHÁC cha+mẹ ghép lại
 
-=== CHỌN logicType ===
-- PHÉP TÍNH → "expr"
-- VIẾT CODE → "code"
-- SỬA CODE → "patch"
-- GIẢI THÍCH → ""
+🚨 KHÔNG được:
+- Copy gen cha nguyên xi
+- Copy gen mẹ nguyên xi
+- Ghép cha mẹ đơn giản
 
-=== CHỌN NGÔN NGỮ CODE ===
+✅ PHẢI:
+- Đọc gen cha + mẹ
+- Suy luận luật mới (VD: thứ tự ưu tiên)
+- Sinh gen mới hoàn chỉnh
+
+=== QUY TẮC CHỌN NGÔN NGỮ CODE ===
 - "spck"/"html"/"web"/"shop"/"ui" → HTML/CSS/JS
 - CHỈ chọn Python khi user NÓI RÕ "python" hoặc "py"
 - "node"/"express" → JavaScript
-- User nói rõ → theo user
 
 === QUY TẮC CODE PHẢI CÓ \\n ===
 - Code PHẢI có xuống dòng (\\n)
@@ -88,90 +92,104 @@ Rule "soLuongSo >= 10" → logicValue "sum([a, b, c, d, e, f, g, h, i])", output
 - CHỈ chứa từ khóa CÙNG CHỦ ĐỀ
 - KHÔNG trộn chủ đề
 
-=== cayQuyetDinhJson ===
-- Có 100 rules cover mọi biến thể
-- Mỗi rule: { if, then: { logicType, logicValue, outputTpl } }
-- expr → dùng biến a-i, rule phải khớp số biến với soLuongSo
-- code → code cụ thể, KHÔNG placeholder
-
-BIẾN CHUẨN:
-- MATH: soLuongSo, coSoAm, coSoThapPhan, coSo0, tuKhoa, a, b, c, d, e, f, g, h, i
-- CODE: ngonNgu, loai, tenHam, thamSo, mucDich
-- BUGFIX: loaiLoi, ngonNgu, dongLoi
-- EXPLAIN: loaiVan, doDai, chuDe
-
 === QUY TẮC CUỐI ===
 1. Trả JSON thuần.
-2. patterns 12-15 mẫu CÙNG CHỦ ĐỀ.
+2. patterns 8-15 mẫu CÙNG CHỦ ĐỀ.
 3. expr → 9 biến a-i, KHÔNG số cứng.
 4. Rule "soLuongSo == N" → PHẢI dùng ĐÚNG N biến.
 5. code → code CỤ THỂ, KHÔNG placeholder.
 6. Code PHẢI có \\n.
 7. keywords 8-12 từ CÙNG CHỦ ĐỀ.
-8. cayQuyetDinhJson có 100 RULES.
-9. outputTpl có {kq}.
+8. outputTpl có {kq}.
+9. Ký tự đầu = {, cuối = }.
 
 BẮT ĐẦU TRẢ JSON NGAY.
 `;
 
-function buildUserMessage({ problem, context = '', relatedTIPs = [], webResults = '', userProfile = null, intentHistory = [] }) {
+function buildUserMessage({
+  problem, context = '', id, parent, cha, me, depth,
+  chaNhanh = null, meNhanh = null,
+  userProfile = null, intentHistory = [],
+}) {
   const parts = [];
-  parts.push('VẤN ĐỀ: ' + problem);
+  parts.push('=== NHIỆM VỤ ===');
+  parts.push('Sinh 1 nhánh MỚI cho cây gốc để xử lý câu hỏi của user.');
+  parts.push('');
+  parts.push('📌 VẤN ĐỀ USER: ' + problem);
+  parts.push('');
+  parts.push('=== VỊ TRÍ NHÁNH MỚI ===');
+  parts.push('- id nhánh mới: ' + id);
+  parts.push('- parent: ' + (parent || 'root'));
+  parts.push('- cha ruột: ' + (cha || '(không có)'));
+  parts.push('- mẹ ruột: ' + (me || '(không có — không phải con lai)'));
+  parts.push('- độ sâu: ' + (depth || 1));
+  parts.push('');
+
+  // Gen cha
+  if (chaNhanh) {
+    parts.push('=== GEN CHA ===');
+    parts.push('- id: ' + chaNhanh.id);
+    parts.push('- name: ' + (chaNhanh.name || ''));
+    parts.push('- nguyenLy: ' + (chaNhanh.nguyenLy || '').slice(0, 200));
+    parts.push('- logicValue: ' + (chaNhanh.logicValue || '').slice(0, 300));
+    parts.push('- patterns: ' + ((chaNhanh.patterns || []).slice(0, 5).join(' | ')));
+    parts.push('- rules: ' + JSON.stringify((chaNhanh.cayQuyetDinhJson?.rules || []).slice(0, 3)));
+    parts.push('');
+  }
+
+  // Gen mẹ
+  if (meNhanh) {
+    parts.push('=== GEN MẸ ===');
+    parts.push('- id: ' + meNhanh.id);
+    parts.push('- name: ' + (meNhanh.name || ''));
+    parts.push('- nguyenLy: ' + (meNhanh.nguyenLy || '').slice(0, 200));
+    parts.push('- logicValue: ' + (meNhanh.logicValue || '').slice(0, 300));
+    parts.push('- patterns: ' + ((meNhanh.patterns || []).slice(0, 5).join(' | ')));
+    parts.push('- rules: ' + JSON.stringify((meNhanh.cayQuyetDinhJson?.rules || []).slice(0, 3)));
+    parts.push('');
+  }
 
   if (userProfile) {
-    parts.push('');
-    parts.push('USER PROFILE:');
+    parts.push('=== USER PROFILE ===');
     if (userProfile.preferredLang) parts.push('- Ngôn ngữ ưa thích: ' + userProfile.preferredLang);
     if (userProfile.techStack && userProfile.techStack.length) parts.push('- Tech stack: ' + userProfile.techStack.join(', '));
     if (userProfile.preferredEditor) parts.push('- Editor: ' + userProfile.preferredEditor);
+    parts.push('');
   }
 
   if (intentHistory && intentHistory.length) {
+    parts.push('=== LỊCH SỬ INTENT ===');
+    parts.push(intentHistory.slice(-10).join(' > '));
     parts.push('');
-    parts.push('LỊCH SỬ INTENT: ' + intentHistory.slice(-10).join(' > '));
   }
 
   if (context) {
-    parts.push('');
-    parts.push('NGỮ CẢNH:');
+    parts.push('=== NGỮ CẢNH ===');
     parts.push(context);
-  }
-
-  if (relatedTIPs && relatedTIPs.length > 0) {
     parts.push('');
-    parts.push('TIP LIÊN QUAN:');
-    relatedTIPs.forEach(function(tip, i) {
-      parts.push('[' + (i + 1) + '] ' + ((tip.nguyenLy || '').slice(0, 100)));
-      if (tip.patterns) parts.push('    Patterns: ' + tip.patterns.slice(0, 3).join(' | '));
-    });
   }
 
-  if (webResults) {
-    parts.push('');
-    parts.push('WEB: ' + webResults);
-  }
-
-  parts.push('');
   parts.push('=== QUY TẮC QUAN TRỌNG NHẤT ===');
   parts.push('');
+  parts.push('1. Nhánh MỚI phải KẾ THỪA từ cha mẹ nhưng có GEN MỚI.');
+  parts.push('2. Nếu là CON LAI → kết hợp gen cha + mẹ + luật mới.');
+  parts.push('');
   parts.push('NẾU logicType="expr" (TOÁN):');
-  parts.push('- Có 9 biến: a, b, c, d, e, f, g, h, i');
+  parts.push('- Dùng 9 biến: a, b, c, d, e, f, g, h, i');
   parts.push('- CẤM số cứng');
   parts.push('- Rule "soLuongSo == N" → PHẢI dùng ĐÚNG N biến');
-  parts.push('- VD rule "soLuongSo == 2" → "a + b", KHÔNG "a + b + c"');
-  parts.push('- VD rule "soLuongSo == 5" → "a + b + c + d + e"');
   parts.push('');
   parts.push('NẾU logicType="code" (CODE):');
   parts.push('- Code CỤ THỂ');
   parts.push('- CẤM placeholder {a}, {b}');
+  parts.push('- Code PHẢI có \\n xuống dòng');
   parts.push('');
   parts.push('CHỌN NGÔN NGỮ CODE:');
   parts.push('- "spck"/"html"/"web" → HTML/CSS/JS');
   parts.push('- CHỈ chọn Python khi user NÓI RÕ "python"');
   parts.push('');
-  parts.push('Code PHẢI có \\n xuống dòng.');
   parts.push('patterns + keywords CÙNG CHỦ ĐỀ.');
-  parts.push('cayQuyetDinhJson có 100 RULES.');
+  parts.push('cayQuyetDinhJson có đủ rules cover biến thể.');
   parts.push('CHỈ JSON.');
 
   return parts.join('\n');

@@ -1,27 +1,24 @@
 /* ═══════════════════════════════════════════════════════════════
-   🧠 TIỂU NÃO — Match pattern → chạy logic → cây quyết định
-   - Nhánh A: expr (mathjs)
-   - Nhánh B: code (Judge0)
-   - Nhánh C: patch (Judge0)
-   - Nhánh D: cây quyết định JSON (tư duy)
-   - Nhánh E: fallback 14 trường
-   - [SỬA] Kiểm ngôn ngữ trước khi match pattern
+   🧠 TIỂU NÃO — Duyệt cây gốc + chạy logic
+   - Bước 1: Match pattern của nhánh
+   - Bước 2: Chạy logic (expr/code/patch)
+   - Bước 3: Chạy cây quyết định JSON của nhánh
+   - Nếu không match → báo Rồng Thần gọi Não sinh nhánh
    ═══════════════════════════════════════════════════════════════ */
 
 const {
   matchPattern, runLogic, formatOutput, detectLangFromCode,
   chayCayQuyetDinh,
 } = require('./logicRunner');
-const feedback = require('./brains/feedback');
+const rootTreeService = require('../services/rootTree.service');
 const logger = require('../utils/logger');
 
 /* ═══════════════════════════════════════════════════════════════
-   [MỚI] DETECT NGÔN NGỮ USER CẦN
+   DETECT NGÔN NGỮ USER CẦN
    ═══════════════════════════════════════════════════════════════ */
 
 function detectLangCan(problem) {
   const q = String(problem).toLowerCase();
-
   if (/html|web|shop|trang|landing|spck|css|giao diện|ui\b/.test(q)) return 'html';
   if (/python|py\b/.test(q)) return 'python';
   if (/javascript|js\b|node|express/.test(q)) return 'javascript';
@@ -31,19 +28,14 @@ function detectLangCan(problem) {
   if (/rust/.test(q)) return 'rust';
   if (/react native/.test(q)) return 'react-native';
   if (/flutter/.test(q)) return 'flutter';
-
   return null;
 }
 
-/**
- * Kiểm TIP có khớp ngôn ngữ user cần không.
- */
-function kiemNgonNguKhop(tip, langCan) {
+function kiemNgonNguKhop(nhanh, langCan) {
   if (!langCan) return true;
-  if (!tip.logicValue) return true;
+  if (!nhanh.logicValue) return true;
 
-  const tipLang = detectLangFromCode(tip.logicValue);
-
+  const nhanhLang = detectLangFromCode(nhanh.logicValue);
   const alias = {
     'html': ['html', 'css'],
     'python': ['python'],
@@ -53,56 +45,50 @@ function kiemNgonNguKhop(tip, langCan) {
     'go': ['go'],
     'rust': ['rust'],
   };
-
   const accepted = alias[langCan] || [langCan];
-  return accepted.includes(tipLang);
+  return accepted.includes(nhanhLang);
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   MAIN
+   MAIN — XỬ LÝ 1 NHÁNH
    ═══════════════════════════════════════════════════════════════ */
 
-async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
-  if (!tip || !tip.nguyenLy) throw new Error('TIP không hợp lệ');
+async function xuLyNhanh({ nhanh, problem, userRequestType, owner, context = null }) {
+  if (!nhanh || !nhanh.id) throw new Error('Nhánh không hợp lệ');
   if (!problem || problem.trim() === '') throw new Error('Vấn đề rỗng');
 
-  logger.info(`🧠 Tiểu não [${userRequestType}]: "${problem.slice(0, 60)}..."`);
+  logger.info(`🧠 Tiểu não [${userRequestType}] nhánh "${nhanh.id}": "${problem.slice(0, 60)}..."`);
 
-  const tipId = tip._id?.toString() || null;
-  const langCan = detectLangCan(problem);   // ← [MỚI]
-
-  /* ═══ BƯỚC 1: Match pattern (có kiểm ngôn ngữ) ═══ */
-  const hasPatterns = Array.isArray(tip.patterns) && tip.patterns.length > 0;
-  const langKhop = kiemNgonNguKhop(tip, langCan);
+  const nhanhId = nhanh.id;
+  const langCan = detectLangCan(problem);
+  const langKhop = kiemNgonNguKhop(nhanh, langCan);
 
   if (!langKhop) {
-    logger.warn(`⚠️ TIP ${tipId} SAI ngôn ngữ (TIP=${detectLangFromCode(tip.logicValue)}, cần=${langCan}) → bỏ qua pattern`);
+    logger.warn(`⚠️ Nhánh ${nhanhId} SAI ngôn ngữ (nhánh=${detectLangFromCode(nhanh.logicValue)}, cần=${langCan})`);
   }
 
-  if (hasPatterns && tip.logicType && langKhop) {
-    const vars = matchPattern(tip.patterns, problem);
+  /* ═══ BƯỚC 1: Match pattern ═══ */
+  const hasPatterns = Array.isArray(nhanh.patterns) && nhanh.patterns.length > 0;
+
+  if (hasPatterns && nhanh.logicType && langKhop) {
+    const vars = matchPattern(nhanh.patterns, problem);
 
     if (vars) {
       logger.info(`🎯 Match pattern — vars=${JSON.stringify(vars)}`);
 
-      if (tipId) {
-        feedback.recordUse(tipId).catch((err) => logger.warn('feedback.recordUse:', err.message));
-      }
+      rootTreeService.tangUsage(nhanhId, 'usage').catch(() => {});
 
       const result = await runLogic({
-        logicType: tip.logicType,
-        logicValue: tip.logicValue,
+        logicType: nhanh.logicType,
+        logicValue: nhanh.logicValue,
         vars,
       });
 
       if (result.success) {
-        const answer = formatOutput(tip.outputTpl, vars, result.kq);
+        const answer = formatOutput(nhanh.outputTpl, vars, result.kq);
         logger.success(`✅ Tiểu não tự tính: ${String(answer).slice(0, 80)}`);
 
-        if (tipId) {
-          feedback.recordSuccess(tipId, { source: 'tieuNao' })
-            .catch((err) => logger.warn('feedback.recordSuccess:', err.message));
-        }
+        rootTreeService.tangUsage(nhanhId, 'success').catch(() => {});
 
         if (result.isCode || result.isPatch) {
           return {
@@ -111,7 +97,7 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
             code: result.kq,
             language: result.language || detectLangFromCode(result.kq),
             output: result.output || '',
-            meta: { tipId, matched: true, vars, logicType: tip.logicType, ran: true },
+            meta: { nhanhId, matched: true, vars, logicType: nhanh.logicType, ran: true },
           };
         }
 
@@ -119,16 +105,12 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
           answer,
           type: 'no_code',
           code: null, language: null, output: null,
-          meta: { tipId, matched: true, vars, logicType: tip.logicType },
+          meta: { nhanhId, matched: true, vars, logicType: nhanh.logicType },
         };
       }
 
       logger.warn(`Match pattern nhưng chạy logic lỗi: ${result.error}`);
-
-      if (tipId) {
-        feedback.recordFail(tipId, result.error || 'logic_failed')
-          .catch((err) => logger.warn('feedback.recordFail:', err.message));
-      }
+      rootTreeService.tangUsage(nhanhId, 'fail').catch(() => {});
 
       if (result.isCode || result.isPatch) {
         return {
@@ -137,29 +119,26 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
           code: result.kq,
           language: result.language || detectLangFromCode(result.kq),
           output: result.output || '',
-          meta: { tipId, matched: true, vars, logicType: tip.logicType, ran: false, error: result.error },
+          meta: { nhanhId, matched: true, vars, logicType: nhanh.logicType, ran: false, error: result.error },
         };
       }
     } else {
-      logger.debug(`Không match pattern nào`);
+      logger.debug(`Không match pattern nào của nhánh ${nhanhId}`);
     }
   }
 
   /* ═══ BƯỚC 2: Chạy cây quyết định JSON ═══ */
-  if (tip.cayQuyetDinhJson && Array.isArray(tip.cayQuyetDinhJson.rules) && tip.cayQuyetDinhJson.rules.length > 0 && langKhop) {
-    logger.info(`🌳 Thử chạy cây quyết định (${tip.cayQuyetDinhJson.rules.length} rules)`);
+  if (nhanh.cayQuyetDinhJson && Array.isArray(nhanh.cayQuyetDinhJson.rules) && nhanh.cayQuyetDinhJson.rules.length > 0 && langKhop) {
+    logger.info(`🌳 Thử chạy cây quyết định (${nhanh.cayQuyetDinhJson.rules.length} rules)`);
 
     try {
-      const cayResult = await chayCayQuyetDinh({ tip, problem });
+      const cayResult = await chayCayQuyetDinh({ nhanh, problem });
 
       if (cayResult.success) {
         logger.success(`✅ Cây quyết định xử lý được: ${String(cayResult.kq).slice(0, 80)}`);
 
-        if (tipId) {
-          feedback.recordUse(tipId).catch((err) => logger.warn('feedback.recordUse:', err.message));
-          feedback.recordSuccess(tipId, { source: 'cayQuyetDinh' })
-            .catch((err) => logger.warn('feedback.recordSuccess:', err.message));
-        }
+        rootTreeService.tangUsage(nhanhId, 'usage').catch(() => {});
+        rootTreeService.tangUsage(nhanhId, 'success').catch(() => {});
 
         if (cayResult.isCode || cayResult.isPatch || cayResult.language) {
           return {
@@ -168,7 +147,7 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
             code: cayResult.kq,
             language: cayResult.language || detectLangFromCode(cayResult.kq),
             output: cayResult.output || '',
-            meta: { tipId, matched: 'cayQuyetDinh', vars: cayResult.vars, ran: true },
+            meta: { nhanhId, matched: 'cayQuyetDinh', vars: cayResult.vars, ran: true },
           };
         }
 
@@ -176,7 +155,7 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
           answer: cayResult.formatted || String(cayResult.kq),
           type: 'no_code',
           code: null, language: null, output: null,
-          meta: { tipId, matched: 'cayQuyetDinh', vars: cayResult.vars },
+          meta: { nhanhId, matched: 'cayQuyetDinh', vars: cayResult.vars },
         };
       }
 
@@ -184,41 +163,40 @@ async function xuLy({ tip, problem, userRequestType, owner, context = null }) {
     } catch (err) {
       logger.warn(`Chạy cây lỗi: ${err.message}`);
     }
-  } else if (!langKhop) {
-    logger.debug(`Bỏ qua cây quyết định vì sai ngôn ngữ`);
   }
 
-  /* ═══ FALLBACK — Nhánh E ═══ */
+  /* ═══ BƯỚC 3: Nhánh chỉ là khung (chưa có logic) ═══ */
+  // Nếu nhánh không có pattern, không có logic, không có cây → đây là nhánh cha
+  // → báo Rồng Thần đi xuống nhánh con hoặc gọi Não sinh nhánh con
   return {
-    answer: formatTIPDayDu(tip),
-    type: 'no_code',
+    answer: null,
+    type: 'need_child',
     code: null, language: null, output: null,
-    meta: { tipId, matched: false },
+    meta: { nhanhId, matched: false, needChild: true, nhanh },
   };
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   FORMAT 14 TRƯỜNG — Nhánh E
+   FALLBACK — Hiển thị 14 trường của nhánh
    ═══════════════════════════════════════════════════════════════ */
 
-function formatTIPDayDu(tip) {
+function formatNhanhDayDu(nhanh) {
+  if (!nhanh) return '(không có nhánh)';
   const parts = [];
-
-  parts.push(`📌 **Nguyên lý:**\n${tip.nguyenLy || '(chưa có)'}`);
-  if (tip.quyTac) parts.push(`\n📏 **Quy tắc:**\n${tip.quyTac}`);
-  if (tip.dieuKien) parts.push(`\n🔗 **Điều kiện:**\n${tip.dieuKien}`);
-  if (tip.cayQuyetDinh) parts.push(`\n🌳 **Cây quyết định:**\n${tip.cayQuyetDinh}`);
-  if (tip.phuongPhap) parts.push(`\n🛠️ **Phương pháp:**\n${tip.phuongPhap}`);
-  if (tip.thuatToan) parts.push(`\n⚙️ **Thuật toán:**\n${tip.thuatToan}`);
-  if (tip.workflow) parts.push(`\n🔄 **Workflow:**\n${tip.workflow}`);
-  if (tip.suyLuan) parts.push(`\n🧠 **Suy luận:**\n${tip.suyLuan}`);
-  if (tip.testCase) parts.push(`\n🧪 **Test case:**\n${tip.testCase}`);
-  if (tip.kiemChung) parts.push(`\n🔍 **Kiểm chứng:**\n${tip.kiemChung}`);
-  if (tip.ngoaiLe) parts.push(`\n⚠️ **Ngoại lệ:**\n${tip.ngoaiLe}`);
-  if (tip.caseKinhNghiem) parts.push(`\n💡 **Case:**\n${tip.caseKinhNghiem}`);
-  if (tip.nguonPhienBan) parts.push(`\n📚 **Nguồn:** ${tip.nguonPhienBan}`);
-
+  parts.push(`📌 **Nguyên lý:**\n${nhanh.nguyenLy || '(chưa có)'}`);
+  if (nhanh.quyTac) parts.push(`\n📏 **Quy tắc:**\n${nhanh.quyTac}`);
+  if (nhanh.dieuKien) parts.push(`\n🔗 **Điều kiện:**\n${nhanh.dieuKien}`);
+  if (nhanh.cayQuyetDinh) parts.push(`\n🌳 **Cây quyết định:**\n${nhanh.cayQuyetDinh}`);
+  if (nhanh.phuongPhap) parts.push(`\n🛠️ **Phương pháp:**\n${nhanh.phuongPhap}`);
+  if (nhanh.thuatToan) parts.push(`\n⚙️ **Thuật toán:**\n${nhanh.thuatToan}`);
+  if (nhanh.workflow) parts.push(`\n🔄 **Workflow:**\n${nhanh.workflow}`);
+  if (nhanh.suyLuan) parts.push(`\n🧠 **Suy luận:**\n${nhanh.suyLuan}`);
+  if (nhanh.testCase) parts.push(`\n🧪 **Test case:**\n${nhanh.testCase}`);
+  if (nhanh.kiemChung) parts.push(`\n🔍 **Kiểm chứng:**\n${nhanh.kiemChung}`);
+  if (nhanh.ngoaiLe) parts.push(`\n⚠️ **Ngoại lệ:**\n${nhanh.ngoaiLe}`);
+  if (nhanh.caseKinhNghiem) parts.push(`\n💡 **Case:**\n${nhanh.caseKinhNghiem}`);
+  if (nhanh.nguonPhienBan) parts.push(`\n📚 **Nguồn:** ${nhanh.nguonPhienBan}`);
   return parts.join('\n');
 }
 
-module.exports = { xuLy, formatTIPDayDu, detectLangCan, kiemNgonNguKhop };
+module.exports = { xuLyNhanh, formatNhanhDayDu, detectLangCan, kiemNgonNguKhop };
