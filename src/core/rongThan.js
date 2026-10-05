@@ -1,8 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    🐉 RỒNG THẦN — Orchestrator với CÂY GỐC
-   - Đọc Context + User Profile + Intent History
-   - Duyệt cây gốc
-   - Nếu thiếu nhánh → Não sinh nhánh con
+   - [SỬA] Log issue rõ + không lưu nhánh nếu fail hết 3 lần
    ═══════════════════════════════════════════════════════════════ */
 
 const { docNguCanh, rutGonChoNao } = require('./docNguCanh');
@@ -18,7 +16,7 @@ const userService = require('../services/user.service');
 const logger = require('../utils/logger');
 
 /* ═══════════════════════════════════════════════════════════════
-   🕐 THỜI GIAN THỰC
+   🕐 THỜI GIAN
    ═══════════════════════════════════════════════════════════════ */
 
 const TZ_VN = 'Asia/Ho_Chi_Minh';
@@ -77,18 +75,15 @@ async function xuLy({ message, conversationId, userId, guestSessionId }) {
     return { answer: traLoiThoiGian(), source: 'system_clock', meta: { type: 'time_query' } };
   }
 
-  /* ═══ Đọc Context + Profile + Intent History ═══ */
   const context = await docNguCanh({ conversationId, userId, guestSessionId });
   context.thoiGianHienTai = layThoiGianChoContext();
 
   const userProfile = userId ? await userService.getProfile(userId) : null;
   const intentHistory = context?.context?.intentHistory || [];
 
-  /* ═══ Phân tích yêu cầu ═══ */
   const analysis = phanTichYeuCau({ problem, context, userProfile, intentHistory });
   logger.info(`🐉 Phân tích: web=${analysis.needWeb}, intent=${analysis.intent}, langCan=${analysis.langCan || 'null'}, path=[${analysis.path.join(' > ')}]`);
 
-  /* ═══ Cập nhật Context ═══ */
   capNhatContext({
     conversationId, userId, guestSessionId, context, problem, intent: analysis.intent,
   }).catch((err) => logger.warn('Context update lỗi:', err.message));
@@ -96,10 +91,8 @@ async function xuLy({ message, conversationId, userId, guestSessionId }) {
   if (userId) contextService.pushIntent(conversationId, analysis.intent).catch(() => {});
   if (userId && analysis.langCan) userService.autoLearn(userId, { lang: analysis.langCan }).catch(() => {});
 
-  /* ═══ Web search ═══ */
   if (analysis.needWeb) return await xuLyCoWeb({ problem, searchQuery: analysis.searchQuery });
 
-  /* ═══ Duyệt cây gốc ═══ */
   return await xuLyCay({ problem, analysis, context, owner, userProfile, intentHistory });
 }
 
@@ -111,18 +104,16 @@ async function xuLyCay({ problem, analysis, context, owner, userProfile, intentH
   const path = analysis.path || [];
 
   if (path.length === 0) {
-    logger.info(`🌳 Không detect được nhánh → trả lời trực tiếp qua Não trái (chế độ không lưu cây)`);
-    // Không detect được → fallback qua Não trái sinh nhánh ở cấp cao nhất
+    logger.info(`🌳 Không detect được nhánh → fallback Não trái`);
     return await fallbackKhongPath({ problem, context, owner, userProfile, intentHistory });
   }
 
-  /* ═══ Duyệt cây theo path ═══ */
   const pathIds = rootTreeHelper.pathToIds(path);
   logger.info(`🌳 Duyệt cây: [${pathIds.join(' > ')}]`);
 
   const duyetResult = await rootTreeService.duyetCayFull(pathIds);
 
-  /* ═══ TRƯỜNG HỢP 1: Đủ nhánh → chạy Tiểu não ═══ */
+  /* Đủ nhánh */
   if (duyetResult.success && duyetResult.nhanh) {
     logger.info(`✅ Tìm thấy nhánh "${duyetResult.nhanh.id}" → chạy Tiểu não`);
 
@@ -134,18 +125,15 @@ async function xuLyCay({ problem, analysis, context, owner, userProfile, intentH
       context,
     });
 
-    // Nếu match thành công → trả luôn
     if (result.meta && result.meta.matched) {
       return formatKetQua(result, duyetResult.nhanh, 'cay_goc');
     }
 
-    // Nếu nhánh không có logic → đi xuống con
     if (result.type === 'need_child') {
-      logger.info(`🌳 Nhánh "${duyetResult.nhanh.id}" là khung → cần đi xuống con`);
+      logger.info(`🌳 Nhánh "${duyetResult.nhanh.id}" là khung → đi xuống con`);
       return await xuLyCon({ nhanhCha: duyetResult.nhanh, problem, analysis, context, owner, userProfile, intentHistory });
     }
 
-    // Fallback
     return {
       answer: tieuNao.formatNhanhDayDu(duyetResult.nhanh),
       source: 'cay_goc_fallback',
@@ -153,7 +141,7 @@ async function xuLyCay({ problem, analysis, context, owner, userProfile, intentH
     };
   }
 
-  /* ═══ TRƯỜNG HỢP 2: Thiếu nhánh → gọi Não sinh nhánh con ═══ */
+  /* Thiếu nhánh */
   logger.info(`🌳 Cây thiếu nhánh tại vị trí ${duyetResult.missingAt} → gọi Não sinh`);
 
   return await sinhNhanhCon({ problem, analysis, context, owner, userProfile, intentHistory, duyetResult, path, pathIds });
@@ -166,17 +154,13 @@ async function xuLyCay({ problem, analysis, context, owner, userProfile, intentH
 async function sinhNhanhCon({ problem, analysis, context, owner, userProfile, intentHistory, duyetResult, path, pathIds }) {
   const contextRutGon = rutGonChoNao({ context, problem, recentCount: 20 });
 
-  // Tìm nhánh cha (nhánh cuối cùng đã có)
   const chaId = duyetResult.lastFoundPath;
   const chaNhanh = chaId ? await rootTreeService.layNhanh(chaId) : null;
 
-  // Nhánh con cần sinh
   const missingIndex = duyetResult.missingAt;
   const conId = pathIds[missingIndex];
   const conPath = path.slice(0, missingIndex + 1);
-  const conName = conPath[conPath.length - 1];
 
-  // Tìm mẹ (nếu con lai — 2 phép toán cùng cấp)
   const meNhanh = analysis.me ? await rootTreeService.layNhanh(analysis.me) : null;
 
   logger.info(`🧠 Não trái sinh nhánh "${conId}" (parent=${chaId || 'root'}, cha=${chaId}, me=${analysis.me || 'null'})`);
@@ -184,6 +168,7 @@ async function sinhNhanhCon({ problem, analysis, context, owner, userProfile, in
   const MAX_ATTEMPTS = 3;
   let currentNhanh = null;
   let missingFields = [];
+  let lastIssues = [];
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     let traiResult;
@@ -218,7 +203,7 @@ async function sinhNhanhCon({ problem, analysis, context, owner, userProfile, in
 
     currentNhanh = traiResult.nhanh;
 
-    // Verify với Não phải
+    /* Verify */
     logger.info(`🧠 Não phải verify nhánh (${attempt}/${MAX_ATTEMPTS})`);
 
     let phaiResult;
@@ -232,13 +217,22 @@ async function sinhNhanhCon({ problem, analysis, context, owner, userProfile, in
     }
 
     const evalRes = phaiResult.evaluation;
+    lastIssues = evalRes.issues || [];
+
+    /* Log issue rõ để debug */
+    if (lastIssues.length > 0) {
+      lastIssues.forEach((iss) => {
+        logger.warn(`   ↳ [${iss.severity}] ${iss.field}: ${iss.problem}`);
+      });
+    }
 
     if (evalRes.testsFailed) {
+      logger.warn(`Tests fail → bổ sung logicValue`);
       missingFields = ['logicValue'];
       continue;
     }
 
-    const highIssues = (evalRes.issues || []).filter((i) => i.severity === 'high');
+    const highIssues = lastIssues.filter((i) => i.severity === 'high');
     if (highIssues.length > 0) {
       logger.warn(`⚠️ Não phải có ${highIssues.length} issue high → Não trái bổ sung`);
       let missing = [...new Set(highIssues.map((i) => i.field).filter(Boolean))];
@@ -252,6 +246,7 @@ async function sinhNhanhCon({ problem, analysis, context, owner, userProfile, in
       continue;
     }
 
+    /* Pass */
     break;
   }
 
@@ -263,12 +258,22 @@ async function sinhNhanhCon({ problem, analysis, context, owner, userProfile, in
     };
   }
 
-  /* ═══ Lưu nhánh vào cây gốc ═══ */
+  /* Kiểm tra xem có issue high chưa fix không */
+  const finalHighIssues = lastIssues.filter((i) => i.severity === 'high');
+  const coIssue = finalHighIssues.length > 0;
+
+  if (coIssue) {
+    logger.warn(`⚠️ Nhánh vẫn còn ${finalHighIssues.length} issue high sau 3 lần → vẫn lưu nhưng flag`);
+    finalHighIssues.forEach((iss) => {
+      logger.warn(`   ↳ ${iss.field}: ${iss.problem}`);
+    });
+  }
+
+  /* Lưu nhánh */
   try {
     await rootTreeService.luuNhanh(currentNhanh);
     logger.success(`✅ Lưu nhánh "${currentNhanh.id}" vào cây gốc`);
 
-    // Cập nhật children của cha
     if (chaId) {
       await rootTreeService.themCon(chaId, currentNhanh.id);
     }
@@ -281,20 +286,15 @@ async function sinhNhanhCon({ problem, analysis, context, owner, userProfile, in
     };
   }
 
-  /* ═══ Sau khi lưu → chạy Tiểu não với nhánh mới ═══ */
-  logger.info(`✅ Dùng nhánh mới "${currentNhanh.id}" → chạy Tiểu não`);
-
-  // Nếu vẫn còn con thiếu → đệ quy sinh tiếp
-  const laConNhanh = pathIds.length > missingIndex + 1;
-  if (laConNhanh) {
-    const remaining = pathIds.slice(missingIndex + 1);
-    logger.info(`🌳 Còn ${remaining.length} nhánh con cần sinh tiếp`);
-
-    // Sau khi sinh cha → duyệt lại từ đầu
+  /* Nếu còn con thiếu → đệ quy */
+  if (pathIds.length > missingIndex + 1) {
+    logger.info(`🌳 Còn ${pathIds.length - missingIndex - 1} nhánh con cần sinh tiếp`);
     return await xuLyCay({ problem, analysis, context, owner, userProfile, intentHistory });
   }
 
-  // Chạy nhánh mới
+  /* Chạy Tiểu não */
+  logger.info(`✅ Dùng nhánh mới "${currentNhanh.id}" → chạy Tiểu não`);
+
   const result = await tieuNao.xuLyNhanh({
     nhanh: currentNhanh,
     problem,
@@ -315,11 +315,10 @@ async function sinhNhanhCon({ problem, analysis, context, owner, userProfile, in
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   ĐI XUỐNG CON — khi nhánh cha là khung
+   ĐI XUỐNG CON
    ═══════════════════════════════════════════════════════════════ */
 
 async function xuLyCon({ nhanhCha, problem, analysis, context, owner, userProfile, intentHistory }) {
-  // Chọn con phù hợp dựa vào langCan / intent
   const conIds = nhanhCha.children || [];
   if (conIds.length === 0) {
     return {
@@ -328,20 +327,17 @@ async function xuLyCon({ nhanhCha, problem, analysis, context, owner, userProfil
     };
   }
 
-  // Chọn con theo langCan
   let conChon = null;
   if (analysis.langCan) {
     for (const id of conIds) {
       if (id.includes(analysis.langCan)) { conChon = id; break; }
     }
   }
-
   if (!conChon) conChon = conIds[0];
 
   const nhanhCon = await rootTreeService.layNhanh(conChon);
 
   if (!nhanhCon) {
-    // Con chưa tồn tại → sinh
     const conPath = conChon.split('.');
     return await sinhNhanhCon({
       problem, analysis, context, owner, userProfile, intentHistory,
@@ -374,7 +370,7 @@ async function xuLyCon({ nhanhCha, problem, analysis, context, owner, userProfil
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   FORMAT KẾT QUẢ
+   FORMAT
    ═══════════════════════════════════════════════════════════════ */
 
 function formatKetQua(result, nhanh, source) {
@@ -393,15 +389,13 @@ function formatKetQua(result, nhanh, source) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   FALLBACK — Khi không detect được path
+   FALLBACK
    ═══════════════════════════════════════════════════════════════ */
 
 async function fallbackKhongPath({ problem, context, owner, userProfile, intentHistory }) {
   const contextRutGon = rutGonChoNao({ context, problem, recentCount: 20 });
 
-  // Sinh nhánh gốc cấp 1 (math/code/van/explain) — không phải lúc nào cũng làm
-  // → Thay vào đó: trả lời trực tiếp qua Não trái
-  logger.info(`🆘 Fallback: dùng Não trái trả lời trực tiếp`);
+  logger.info(`🆘 Fallback: Não trái trả lời trực tiếp`);
 
   try {
     const traiResult = await naoTrai.sinhNhanhMoi({
@@ -420,8 +414,6 @@ async function fallbackKhongPath({ problem, context, owner, userProfile, intentH
     });
 
     const nhanh = traiResult.nhanh;
-
-    // Không lưu vào cây — chỉ dùng tạm
     logger.info(`✅ Não trái trả lời tạm (không lưu cây)`);
 
     return {
@@ -443,7 +435,7 @@ async function fallbackKhongPath({ problem, context, owner, userProfile, intentH
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   CẬP NHẬT CONTEXT
+   CONTEXT
    ═══════════════════════════════════════════════════════════════ */
 
 async function capNhatContext({ conversationId, userId, guestSessionId, context, problem, intent = 'general' }) {
@@ -468,7 +460,7 @@ async function capNhatContext({ conversationId, userId, guestSessionId, context,
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PHÂN TÍCH YÊU CẦU
+   PHÂN TÍCH
    ═══════════════════════════════════════════════════════════════ */
 
 const WEB_PATTERNS = [
@@ -502,11 +494,9 @@ function phanTichYeuCau({ problem, context, userProfile, intentHistory }) {
   let langCan = detectLangCan(problem);
   if (!langCan && userProfile?.preferredLang) langCan = userProfile.preferredLang;
 
-  /* Tạo path nhánh */
   const path = rootTreeHelper.taoPathNhanh(problem);
   const pheps = rootTreeHelper.phatHienPhepToan(problem);
 
-  // Nếu có 2 phép → mẹ là phép thứ 2 (con lai)
   let me = null;
   if (pheps.length >= 2) {
     me = `math.${pheps[1]}`;
@@ -534,10 +524,6 @@ function extractKeywords(text) {
   for (const w of words) freq[w] = (freq[w] || 0) + 1;
   return Object.entries(freq).sort((a, b) => b[1] - a[1]).map(([w]) => w);
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   WEB
-   ═══════════════════════════════════════════════════════════════ */
 
 async function xuLyCoWeb({ problem, searchQuery }) {
   logger.info(`🌐 Tavily: "${searchQuery.slice(0, 60)}..."`);
