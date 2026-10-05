@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 PROMPT — NÃO TRÁI
    - Sinh 1 nhánh mới cho CÂY GỐC
-   - [SỬA] ÉP outputTpl phải có {a}, {b} — KHÔNG "Kết quả là {kq}"
+   - [SỬA] Ép TỐI THIỂU 5 RULES trong cayQuyetDinhJson
    ═══════════════════════════════════════════════════════════════ */
 
 const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh 1 NHÁNH MỚI cho CÂY GỐC.
@@ -38,49 +38,64 @@ const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh 1 NHÁN
   }
 }
 
-=== 🚨🚨🚨 QUY TẮC CỰC QUAN TRỌNG NHẤT — outputTpl ===
+=== 🚨🚨🚨 QUY TẮC CỰC QUAN TRỌNG NHẤT — cayQuyetDinhJson ===
 
-🔥 VỚI logicType="expr" — outputTpl BẮT BUỘC phải có {a}, {b}, {c}...
+🔥 BẮT BUỘC PHẢI CÓ cayQuyetDinhJson với TỐI THIỂU 5 RULES
+🔥 Nếu sinh ít hơn 5 rules → Não phải sẽ FAIL → phải sinh lại
+🔥 KHÔNG ĐƯỢC sinh 1-2 rules
+
+Ví dụ ĐÚNG cho phép cộng — TỐI THIỂU 5 RULES:
+{
+  "category": "math",
+  "rules": [
+    { "if": "soLuongSo == 2", "then": { "logicType": "expr", "logicValue": "a + b", "outputTpl": "{a} + {b} = **{kq}**" } },
+    { "if": "soLuongSo == 3", "then": { "logicType": "expr", "logicValue": "a + b + c", "outputTpl": "{a} + {b} + {c} = **{kq}**" } },
+    { "if": "soLuongSo == 4", "then": { "logicType": "expr", "logicValue": "a + b + c + d", "outputTpl": "{a} + {b} + {c} + {d} = **{kq}**" } },
+    { "if": "soLuongSo == 5", "then": { "logicType": "expr", "logicValue": "a + b + c + d + e", "outputTpl": "{a} + {b} + {c} + {d} + {e} = **{kq}**" } },
+    { "if": "soLuongSo >= 6", "then": { "logicType": "expr", "logicValue": "sum([a, b, c, d, e, f, g, h, i])", "outputTpl": "Tổng = **{kq}**" } },
+    { "if": "coSoAm == true", "then": { "logicType": "expr", "logicValue": "a + b", "outputTpl": "{a} + {b} = **{kq}**" } },
+    { "if": "coSoThapPhan == true", "then": { "logicType": "expr", "logicValue": "a + b", "outputTpl": "{a} + {b} = **{kq}**" } },
+    { "if": "coSo0 == true", "then": { "logicType": "expr", "logicValue": "a + b", "outputTpl": "{a} + {b} = **{kq}**" } }
+  ],
+  "fallback": { "logicType": "", "logicValue": "", "outputTpl": "Không xử lý được" }
+}
+
+→ 8 rules — đủ (>= 5).
+
+❌ SAI — CHỈ 1 RULE:
+{
+  "category": "math",
+  "rules": [
+    { "if": "soLuongSo == 2", "then": { "logicType": "expr", "logicValue": "a + b", "outputTpl": "{a} + {b} = **{kq}**" } }
+  ]
+}
+→ Chỉ 1 rule → Não phải FAIL.
+
+=== 🚨 QUY TẮC outputTpl — expr ===
+
+🔥 outputTpl BẮT BUỘC phải có {a}, {b}, {c}...
 🔥 KHÔNG ĐƯỢC dùng "Kết quả là {kq}"
-🔥 KHÔNG ĐƯỢC dùng "Kết quả của phép tính là {kq}"
-🔥 KHÔNG ĐƯỢC dùng mô tả chung chung
 
-✅ ĐÚNG — PHÉP CỘNG:
-"outputTpl": "{a} + {b} = **{kq}**"
-"outputTpl": "{a} + {b} + {c} = **{kq}**"
-"outputTpl": "{a} + {b} + {c} + {d} = **{kq}**"
-
-✅ ĐÚNG — PHÉP NHÂN:
-"outputTpl": "{a} × {b} = **{kq}**"
-"outputTpl": "{a} × {b} × {c} = **{kq}**"
-
-✅ ĐÚNG — PHÉP TRỪ:
-"outputTpl": "{a} - {b} = **{kq}**"
-
-✅ ĐÚNG — PHÉP CHIA:
-"outputTpl": "{a} ÷ {b} = **{kq}**"
-
-✅ ĐÚNG — PHÉP MŨ:
-"outputTpl": "{a}^{b} = **{kq}**"
-
-✅ ĐÚNG — CỘNG NHÂN HỖN HỢP:
-"outputTpl": "{a} + {b} × {c} = **{kq}**"
+✅ ĐÚNG:
+- "{a} + {b} = **{kq}**"
+- "{a} + {b} + {c} = **{kq}**"
+- "{a} × {b} = **{kq}**"
+- "{a} - {b} = **{kq}**"
+- "{a} ÷ {b} = **{kq}**"
 
 ❌ SAI — TUYỆT ĐỐI KHÔNG:
-"outputTpl": "Kết quả là {kq}"
-"outputTpl": "Kết quả của phép tính là {kq}"
-"outputTpl": "Đáp án: {kq}"
-"outputTpl": "Tổng là {kq}"
-"outputTpl": "= {kq}"
+- "Kết quả là {kq}"
+- "Kết quả của phép tính là {kq}"
+- "Đáp án: {kq}"
+- "Tổng là {kq}"
+- "= {kq}"
 
 === 🚨 QUY TẮC logicValue — expr ===
 
 Với logicType="expr":
 - Dùng 9 biến: a, b, c, d, e, f, g, h, i
 - CẤM số cứng
-
-✅ ĐÚNG: "a + b", "a + b + c", "a * b"
-❌ SAI: "1 + 2", "5 + 10"
+- Rule "soLuongSo == N" → PHẢI dùng ĐÚNG N biến
 
 === 🚨 QUY TẮC logicValue — code ===
 
@@ -89,58 +104,34 @@ Với logicType="code"/"patch":
 - CẤM placeholder {a}, {b}
 - Code PHẢI có \\n xuống dòng
 
-=== 🚨 QUY TẮC cayQuyetDinhJson ===
-
-🚨 BẮT BUỘC PHẢI CÓ cayQuyetDinhJson cho logicType="expr":
-{
-  "category": "math",
-  "rules": [
-    { "if": "soLuongSo == 2", "then": { "logicType": "expr", "logicValue": "a + b", "outputTpl": "{a} + {b} = **{kq}**" } },
-    { "if": "soLuongSo == 3", "then": { "logicType": "expr", "logicValue": "a + b + c", "outputTpl": "{a} + {b} + {c} = **{kq}**" } },
-    { "if": "soLuongSo == 4", "then": { "logicType": "expr", "logicValue": "a + b + c + d", "outputTpl": "{a} + {b} + {c} + {d} = **{kq}**" } },
-    { "if": "soLuongSo == 5", "then": { "logicType": "expr", "logicValue": "a + b + c + d + e", "outputTpl": "{a} + {b} + {c} + {d} + {e} = **{kq}**" } },
-    { "if": "soLuongSo >= 6", "then": { "logicType": "expr", "logicValue": "sum([a, b, c, d, e, f, g, h, i])", "outputTpl": "Tổng = **{kq}**" } }
-  ],
-  "fallback": { "logicType": "", "logicValue": "", "outputTpl": "Không xử lý được" }
-}
-
-🚨 rules PHẢI dùng biến a, b, c — KHÔNG số cứng
-🚨 rule "soLuongSo == N" → PHẢI dùng ĐÚNG N biến
-
 === 🚨 QUY TẮC KẾ THỪA TỪ CHA MẸ ===
 
 Nếu cha là "phép cộng" (gen: a + b) và mẹ là "phép nhân" (gen: c * d):
-→ Con "cộng nhân" có gen MỚI: "a + b * c" (nhân trước cộng sau)
+→ Con "cộng nhân" có gen MỚI: "a + b * c"
 → Gen này KHÁC cha, KHÁC mẹ
 
-🚨 KHÔNG được:
-- Copy gen cha nguyên xi
-- Copy gen mẹ nguyên xi
-
-✅ PHẢI:
-- Đọc gen cha + mẹ
-- Suy luận luật mới
-- Sinh gen mới hoàn chỉnh
+🚨 KHÔNG được copy gen cha/mẹ nguyên xi.
+✅ PHẢI: Đọc gen cha + mẹ → Suy luận luật mới → Sinh gen mới.
 
 === QUY TẮC CHỌN NGÔN NGỮ CODE ===
 - "spck"/"html"/"web"/"shop"/"ui" → HTML/CSS/JS
 - CHỈ chọn Python khi user NÓI RÕ "python" hoặc "py"
-- "node"/"express" → JavaScript
 
 === QUY TẮC patterns + keywords ===
 - CHỈ chứa từ khóa CÙNG CHỦ ĐỀ
-- KHÔNG trộn chủ đề
+- patterns 8-15 mẫu
+- keywords 8-12 từ
 
 === QUY TẮC CUỐI ===
 1. Trả JSON thuần.
 2. patterns 8-15 mẫu CÙNG CHỦ ĐỀ.
-3. expr → 9 biến a-i, KHÔNG số cứng.
-4. outputTpl PHẢI có {a}, {b}, {c} — KHÔNG "Kết quả là {kq}".
-5. Rule "soLuongSo == N" → PHẢI dùng ĐÚNG N biến.
-6. code → code CỤ THỂ, KHÔNG placeholder.
-7. Code PHẢI có \\n.
-8. keywords 8-12 từ CÙNG CHỦ ĐỀ.
-9. BẮT BUỘC có cayQuyetDinhJson cho expr.
+3. 🚨 cayQuyetDinhJson PHẢI có TỐI THIỂU 5 RULES.
+4. 🚨 outputTpl PHẢI có {a}, {b}, {c} — KHÔNG "Kết quả là {kq}".
+5. expr → 9 biến a-i, KHÔNG số cứng.
+6. Rule "soLuongSo == N" → PHẢI dùng ĐÚNG N biến.
+7. code → code CỤ THỂ, KHÔNG placeholder.
+8. Code PHẢI có \\n.
+9. keywords 8-12 từ CÙNG CHỦ ĐỀ.
 10. Ký tự đầu = {, cuối = }.
 
 BẮT ĐẦU TRẢ JSON NGAY.
@@ -209,23 +200,22 @@ function buildUserMessage({
 
   parts.push('=== QUY TẮC QUAN TRỌNG NHẤT ===');
   parts.push('');
+  parts.push('🚨 BẮT BUỘC có cayQuyetDinhJson với TỐI THIỂU 5 RULES');
   parts.push('🚨 outputTpl PHẢI có {a}, {b}, {c} — KHÔNG "Kết quả là {kq}"');
   parts.push('');
-  parts.push('✅ ĐÚNG:');
-  parts.push('- "{a} + {b} = **{kq}**"');
-  parts.push('- "{a} + {b} + {c} = **{kq}**"');
-  parts.push('- "{a} × {b} = **{kq}**"');
+  parts.push('✅ cayQuyetDinhJson ĐÚNG:');
+  parts.push('- soLuongSo == 2 → "a + b"');
+  parts.push('- soLuongSo == 3 → "a + b + c"');
+  parts.push('- soLuongSo == 4 → "a + b + c + d"');
+  parts.push('- soLuongSo == 5 → "a + b + c + d + e"');
+  parts.push('- soLuongSo >= 6 → "sum([...])"');
+  parts.push('- coSoAm → "a + b"');
+  parts.push('- coSoThapPhan → "a + b"');
+  parts.push('→ Tổng 7-8 rules — ĐỦ');
   parts.push('');
-  parts.push('❌ SAI — TUYỆT ĐỐI KHÔNG:');
-  parts.push('- "Kết quả là {kq}"');
-  parts.push('- "Kết quả của phép tính là {kq}"');
-  parts.push('- "Đáp án: {kq}"');
-  parts.push('');
-  parts.push('🚨 BẮT BUỘC có cayQuyetDinhJson cho expr:');
-  parts.push('Rules: soLuongSo == 2 → "a + b"; == 3 → "a + b + c"; >= 6 → sum([...])');
+  parts.push('❌ KHÔNG ĐƯỢC sinh 1-2 rules');
   parts.push('');
   parts.push('🚨 9 biến a-i, CẤM số cứng.');
-  parts.push('🚨 patterns + keywords CÙNG CHỦ ĐỀ.');
   parts.push('🚨 CHỈ JSON.');
 
   return parts.join('\n');

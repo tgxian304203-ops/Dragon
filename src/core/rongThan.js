@@ -1,6 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════
    🐉 RỒNG THẦN — Orchestrator với CÂY GỐC
-   - [SỬA] Log issue rõ + không lưu nhánh nếu fail hết 3 lần
+   - Đọc Context + User Profile + Intent History
+   - Duyệt cây gốc
+   - Nếu thiếu nhánh → Não sinh nhánh con
+   - [SỬA] Nếu vẫn còn issue high sau 3 lần → KHÔNG LƯU, KHÔNG CHẠY
    ═══════════════════════════════════════════════════════════════ */
 
 const { docNguCanh, rutGonChoNao } = require('./docNguCanh');
@@ -219,7 +222,7 @@ async function sinhNhanhCon({ problem, analysis, context, owner, userProfile, in
     const evalRes = phaiResult.evaluation;
     lastIssues = evalRes.issues || [];
 
-    /* Log issue rõ để debug */
+    /* Log issue rõ */
     if (lastIssues.length > 0) {
       lastIssues.forEach((iss) => {
         logger.warn(`   ↳ [${iss.severity}] ${iss.field}: ${iss.problem}`);
@@ -258,15 +261,24 @@ async function sinhNhanhCon({ problem, analysis, context, owner, userProfile, in
     };
   }
 
-  /* Kiểm tra xem có issue high chưa fix không */
+  /* ═══ [SỬA] Nếu vẫn còn issue high sau 3 lần → KHÔNG LƯU ═══ */
   const finalHighIssues = lastIssues.filter((i) => i.severity === 'high');
   const coIssue = finalHighIssues.length > 0;
 
   if (coIssue) {
-    logger.warn(`⚠️ Nhánh vẫn còn ${finalHighIssues.length} issue high sau 3 lần → vẫn lưu nhưng flag`);
+    logger.error(`❌ Nhánh vẫn còn ${finalHighIssues.length} issue high sau 3 lần → KHÔNG LƯU`);
     finalHighIssues.forEach((iss) => {
-      logger.warn(`   ↳ ${iss.field}: ${iss.problem}`);
+      logger.error(`   ↳ ${iss.field}: ${iss.problem}`);
     });
+
+    return {
+      answer: '⚠️ Không tạo được nhánh mới. Vui lòng thử lại với câu hỏi khác.',
+      source: 'error',
+      meta: {
+        reason: 'nhanh_issue_high',
+        issues: finalHighIssues.map((i) => `${i.field}: ${i.problem}`),
+      },
+    };
   }
 
   /* Lưu nhánh */
