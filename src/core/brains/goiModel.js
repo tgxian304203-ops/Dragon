@@ -1,11 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
-   📞 GỌI MODEL — TIER-FIRST (NT9, NP9, TU7)
-   - Load key → dò model → gộp tier
-   - Tier 1: dùng hết model mạnh nhất xuyên provider
-   - Hết tier 1 → tier 2 → ... → tier 5
-   - Tự bắt model chết (404 / decommissioned) → blacklist
-   - Gemini/OpenRouter: tăng counter request
-   - Groq: cập nhật quota từ header
+   📞 GỌI MODEL — TIER-FIRST
+   - [SỬA] 429: đọc retry-after → markExhausted với TTL chính xác
+   - [SỬA] 503: markOverloaded → cooldown 5 phút
    ═══════════════════════════════════════════════════════════════ */
 
 const BrainKey = require('../../models/brainKey.model');
@@ -67,6 +63,29 @@ function isModelDeadError(status, message) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   [MỚI] PARSE RETRY-AFTER
+   ═══════════════════════════════════════════════════════════════ */
+
+/**
+ * Parse thời gian retry-after từ error message.
+ * Groq trả: "Please try again in 13m32.592s"
+ * → 13m32.592s = 13*60 + 32.592 = 812.592s = 812592ms
+ */
+function parseRetryAfterMs(message) {
+  if (!message || typeof message !== 'string') return null;
+
+  // Pattern: "in 13m32.592s" hoặc "in 47.66s" hoặc "in 2m59.56s"
+  const match = message.match(/in\s+(?:(\d+)m)?(\d+(?:\.\d+)?)s/i);
+  if (!match) return null;
+
+  const minutes = match[1] ? parseInt(match[1], 10) : 0;
+  const seconds = parseFloat(match[2]);
+  const totalMs = (minutes * 60 + seconds) * 1000;
+
+  return Math.round(totalMs);
+}
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN — TIER-FIRST
    ═══════════════════════════════════════════════════════════════ */
 
@@ -79,7 +98,7 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
     Array.isArray(options.excludeModels) ? options.excludeModels : []
   );
 
-  /* ═══ BƯỚC 1 — Load key + sort theo quota ═══ */
+  /* BƯỚC 1 — Load key + sort theo quota */
   const keys = await loadAliveKeys(side, userId, guestSessionId);
   if (keys.length === 0) {
     throw new Error(`Não ${side === 'left' ? 'trái' : 'phải'} chưa có key nào hoạt động`);
@@ -87,20 +106,21 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
 
   for (const k of keys) {
     k._quotaHieuDung = quotaTracker.layQuotaHieuDung(k);
+    k._conLaiMs = quotaTracker.tinhConLaiMs(k);
   }
   keys.sort((a, b) => b._quotaHieuDung - a._quotaHieuDung);
 
   logger.info(
     `🎯 Não ${side === 'left' ? 'trái' : 'phải'} — ${keys.length} key: ` +
-    keys.map((k) => `${k.provider}(${k._quotaHieuDung}%)`).join(' → ')
+    keys.map((k) => `${k.provider}(${k._quotaHieuDung}%${k._conLaiMs > 0 ? ' chờ ' + Math.round(k._conLaiMs / 60000) + 'p' : ''})`).join(' → ')
   );
 
-  /* ═══ BƯỚC 2 — Dò model cho từng key ═══ */
+  /* BƯỚC 2 — Dò model */
   for (const key of keys) {
     key._models = await ensureModels(side, key);
   }
 
-  /* ═══ BƯỚC 3 — Gộp model pool ═══ */
+  /* BƯỚC 3 — Gộp model pool */
   const modelPool = new Map();
 
   for (const key of keys) {
@@ -128,7 +148,7 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
     throw new Error(`Não ${side === 'left' ? 'trái' : 'phải'}: không có model nào khả dụng`);
   }
 
-  /* ═══ BƯỚC 4 — Group model theo TIER ═══ */
+  /* BƯỚC 4 — Group theo TIER */
   const tierGroups = new Map();
 
   for (const modelId of modelPool.keys()) {
@@ -146,21 +166,14 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
 
   const lastErrors = [];
 
-  /* ═══ BƯỚC 5 — Loop từng TIER ═══ */
+  /* BƯỚC 5 — Loop từng TIER */
   for (const tier of sortedTiers) {
     const modelsInTier = tierGroups.get(tier);
     modelsInTier.sort();
 
-    logger.debug(`📍 Tier ${tier} — ${modelsInTier.length} model: ${modelsInTier.join(', ')}`);
-
     for (const modelId of modelsInTier) {
       const keyCandidates = modelPool.get(modelId) || [];
       keyCandidates.sort((a, b) => b.quota - a.quota);
-
-      logger.debug(
-        `🔍 Model "${modelId}" (T${tier}) — ${keyCandidates.length} key: ` +
-        keyCandidates.map((k) => `${k.provider}(${k.quota}%)`).join(', ')
-      );
 
       for (const cand of keyCandidates) {
         if (cand.quota <= 0) {
@@ -169,29 +182,19 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
         }
 
         const adapter = ADAPTERS[cand.provider];
-        if (!adapter) {
-          logger.warn(`Provider ${cand.provider} không hỗ trợ`);
-          continue;
-        }
+        if (!adapter) continue;
 
         try {
           logger.debug(`→ Gọi ${cand.provider}/${modelId}`);
 
-          const result = await adapter.chat(
-            cand.keyValue,
-            modelId,
-            messages,
-            options
-          );
+          const result = await adapter.chat(cand.keyValue, modelId, messages, options);
 
-          // Cập nhật quota theo provider
+          // Cập nhật quota
           if (cand.provider === 'groq') {
-            // Groq: đọc header rate limit
             if (result.rateLimit) {
               await quotaTracker.updateQuota(cand.keyId, result.rateLimit);
             }
           } else if (cand.provider === 'gemini' || cand.provider === 'openrouter') {
-            // Gemini/OpenRouter: tăng counter
             await quotaTracker.tangRequest(cand.keyId, cand.provider);
           }
 
@@ -209,7 +212,7 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
           logger.warn(`❌ Lỗi ${cand.provider}/${modelId}: ${err.message}`);
           lastErrors.push(`${cand.provider}/${modelId}: ${err.message}`);
 
-          // 404 / decommissioned — model chết
+          // 404 — model chết
           if (isModelDeadError(status, err.message)) {
             modelCache.markDead(cand.provider, modelId);
             logger.warn(`☠️ Model ${cand.provider}/${modelId} chết → blacklist 1h`);
@@ -226,9 +229,24 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
 
           // 429 — hết quota
           if (status === 429) {
-            await quotaTracker.markExhausted(cand.keyId);
+            const retryAfterMs = parseRetryAfterMs(err.message);
+            if (retryAfterMs) {
+              await quotaTracker.markExhausted(cand.keyId, retryAfterMs);
+              logger.warn(
+                `🔋 Key ${cand.provider} hết quota → chờ ${Math.round(retryAfterMs / 1000)}s (đã set quotaResetAt)`
+              );
+            } else {
+              await quotaTracker.markExhausted(cand.keyId);
+              logger.warn(`🔋 Key ${cand.provider} hết quota (không có retry-after → dùng TTL mặc định)`);
+            }
             cand.quota = 0;
-            logger.warn(`🔋 Key ${cand.provider} hết quota → qua key tiếp`);
+            continue;
+          }
+
+          // [MỚI] 503 — server overload
+          if (status === 503) {
+            await quotaTracker.markOverloaded(cand.keyId);
+            logger.warn(`🔥 Server ${cand.provider} quá tải → cooldown 5 phút`);
             continue;
           }
 
@@ -236,18 +254,13 @@ async function callModel({ side, userId, guestSessionId, messages, options = {} 
           continue;
         }
       }
-
-      logger.debug(`⚠️ Model "${modelId}" hết key khả dụng`);
     }
-
-    logger.debug(`⚠️ Hết tier ${tier}`);
   }
 
-  /* ═══ BƯỚC 6 — Hết tất cả ═══ */
   throw new Error(
     `Não ${side === 'left' ? 'trái' : 'phải'}: tất cả tier thất bại. ` +
     `Chi tiết: ${lastErrors.slice(-5).join(' | ')}`
   );
 }
 
-module.exports = { callModel, loadAliveKeys };
+module.exports = { callModel, loadAliveKeys, parseRetryAfterMs };
