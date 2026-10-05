@@ -1,16 +1,22 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 TIỂU NÃO — Duyệt cây gốc + chạy logic
-   - Bước 1: Match pattern của nhánh
-   - Bước 2: Chạy cây quyết định JSON của nhánh
-   - Bước 3: Nếu không match → báo Rồng Thần gọi Não sinh nhánh
+   - [SỬA] Lazy require logicRunner — tránh circular dependency
    ═══════════════════════════════════════════════════════════════ */
 
-const {
-  matchPattern, runLogic, formatOutput, detectLangFromCode,
-  chayCayQuyetDinh,
-} = require('./logicRunner');
 const rootTreeService = require('../services/rootTree.service');
 const logger = require('../utils/logger');
+
+/* ═══════════════════════════════════════════════════════════════
+   LAZY LOAD logicRunner — tránh circular dependency
+   ═══════════════════════════════════════════════════════════════ */
+
+let _logicRunner = null;
+function getLogicRunner() {
+  if (!_logicRunner) {
+    _logicRunner = require('./logicRunner');
+  }
+  return _logicRunner;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    DETECT NGÔN NGỮ
@@ -34,7 +40,9 @@ function kiemNgonNguKhop(nhanh, langCan) {
   if (!langCan) return true;
   if (!nhanh.logicValue) return true;
 
-  const nhanhLang = detectLangFromCode(nhanh.logicValue);
+  const lr = getLogicRunner();
+  const nhanhLang = lr.detectLangFromCode(nhanh.logicValue);
+
   const alias = {
     'html': ['html', 'css'],
     'python': ['python'],
@@ -58,33 +66,34 @@ async function xuLyNhanh({ nhanh, problem, userRequestType, owner, context = nul
 
   logger.info(`🧠 Tiểu não [${userRequestType}] nhánh "${nhanh.id}": "${problem.slice(0, 60)}..."`);
 
+  const lr = getLogicRunner();
   const nhanhId = nhanh.id;
   const langCan = detectLangCan(problem);
   const langKhop = kiemNgonNguKhop(nhanh, langCan);
 
   if (!langKhop) {
-    logger.warn(`⚠️ Nhánh ${nhanhId} SAI ngôn ngữ (nhánh=${detectLangFromCode(nhanh.logicValue)}, cần=${langCan})`);
+    logger.warn(`⚠️ Nhánh ${nhanhId} SAI ngôn ngữ (nhánh=${lr.detectLangFromCode(nhanh.logicValue)}, cần=${langCan})`);
   }
 
   /* ═══ BƯỚC 1: Match pattern ═══ */
   const hasPatterns = Array.isArray(nhanh.patterns) && nhanh.patterns.length > 0;
 
   if (hasPatterns && nhanh.logicType && langKhop) {
-    const vars = matchPattern(nhanh.patterns, problem);
+    const vars = lr.matchPattern(nhanh.patterns, problem);
 
     if (vars) {
       logger.info(`🎯 Match pattern — vars=${JSON.stringify(vars)}`);
 
       rootTreeService.tangUsage(nhanhId, 'usage').catch(() => {});
 
-      const result = await runLogic({
+      const result = await lr.runLogic({
         logicType: nhanh.logicType,
         logicValue: nhanh.logicValue,
         vars,
       });
 
       if (result.success) {
-        const answer = formatOutput(nhanh.outputTpl, vars, result.kq);
+        const answer = lr.formatOutput(nhanh.outputTpl, vars, result.kq);
         logger.success(`✅ Tiểu não tự tính: ${String(answer).slice(0, 80)}`);
 
         rootTreeService.tangUsage(nhanhId, 'success').catch(() => {});
@@ -94,7 +103,7 @@ async function xuLyNhanh({ nhanh, problem, userRequestType, owner, context = nul
             answer,
             type: result.isCode ? 'code' : 'patch',
             code: result.kq,
-            language: result.language || detectLangFromCode(result.kq),
+            language: result.language || lr.detectLangFromCode(result.kq),
             output: result.output || '',
             meta: { nhanhId, matched: true, vars, logicType: nhanh.logicType, ran: true },
           };
@@ -116,7 +125,7 @@ async function xuLyNhanh({ nhanh, problem, userRequestType, owner, context = nul
           answer: `⚠️ Code chạy lỗi: ${result.error}`,
           type: result.isCode ? 'code' : 'patch',
           code: result.kq,
-          language: result.language || detectLangFromCode(result.kq),
+          language: result.language || lr.detectLangFromCode(result.kq),
           output: result.output || '',
           meta: { nhanhId, matched: true, vars, logicType: nhanh.logicType, ran: false, error: result.error },
         };
@@ -131,7 +140,7 @@ async function xuLyNhanh({ nhanh, problem, userRequestType, owner, context = nul
     logger.info(`🌳 Thử chạy cây quyết định (${nhanh.cayQuyetDinhJson.rules.length} rules)`);
 
     try {
-      const cayResult = await chayCayQuyetDinh({ nhanh, problem });
+      const cayResult = await lr.chayCayQuyetDinh({ nhanh, problem });
 
       if (cayResult.success) {
         logger.success(`✅ Cây quyết định xử lý được: ${String(cayResult.kq).slice(0, 80)}`);
@@ -144,7 +153,7 @@ async function xuLyNhanh({ nhanh, problem, userRequestType, owner, context = nul
             answer: cayResult.formatted || String(cayResult.kq),
             type: cayResult.isPatch ? 'patch' : 'code',
             code: cayResult.kq,
-            language: cayResult.language || detectLangFromCode(cayResult.kq),
+            language: cayResult.language || lr.detectLangFromCode(cayResult.kq),
             output: cayResult.output || '',
             meta: { nhanhId, matched: 'cayQuyetDinh', vars: cayResult.vars, ran: true },
           };
