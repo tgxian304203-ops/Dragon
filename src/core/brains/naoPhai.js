@@ -1,16 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 NÃO PHẢI — Verify nhánh cây gốc
-   - Verify 14 trường + 4 trường máy
-   - Verify expr không số cứng
-   - Verify code không placeholder
-   - Verify rule khớp số biến
+   - [SỬA] Lazy require logicRunner — tránh circular dependency
    ═══════════════════════════════════════════════════════════════ */
 
 const { callModel } = require('./goiModel');
 const naoPhaiPrompt = require('./prompts/naoPhai.prompt');
 const { webSearch, formatForPrompt } = require('../webSearch');
 const { evaluate } = require('mathjs');
-const { matchPattern } = require('../logicRunner');
 const logger = require('../../utils/logger');
 
 const FIELDS_14 = [
@@ -98,14 +94,27 @@ function normalizeEvaluation(raw) {
    VERIFY CƠ BẢN
    ═══════════════════════════════════════════════════════════════ */
 
+/**
+ * [SỬA] Lazy require logicRunner — tránh circular dependency.
+ */
 function verifyPattern(nhanh, originalProblem) {
-  if (!originalProblem || !Array.isArray(nhanh.patterns) || nhanh.patterns.length === 0) return { matched: false, vars: null };
+  if (!originalProblem || !Array.isArray(nhanh.patterns) || nhanh.patterns.length === 0) {
+    return { matched: false, vars: null, skip: true };
+  }
   try {
+    const logicRunner = require('../logicRunner');
+    const matchPattern = logicRunner.matchPattern;
+
+    if (typeof matchPattern !== 'function') {
+      logger.warn('⚠️ matchPattern không phải function — bỏ qua verify pattern');
+      return { matched: false, vars: null, skip: true };
+    }
+
     const vars = matchPattern(nhanh.patterns, originalProblem);
-    return { matched: !!vars, vars };
+    return { matched: !!vars, vars, skip: false };
   } catch (err) {
     logger.warn(`verifyPattern lỗi: ${err.message}`);
-    return { matched: false, vars: null };
+    return { matched: false, vars: null, skip: true };
   }
 }
 
@@ -126,9 +135,6 @@ function verifyLogicTypeForIntent(nhanh, originalProblem) {
   return { ok: true };
 }
 
-/**
- * Verify nhánh có 14 trường nội dung.
- */
 function verify14Truong(nhanh) {
   const issues = [];
   for (const field of FIELDS_14) {
@@ -149,13 +155,9 @@ function verify14Truong(nhanh) {
   return issues;
 }
 
-/**
- * Verify cây quyết định JSON.
- */
 function verifyCayQuyetDinh(nhanh) {
   const cay = nhanh.cayQuyetDinhJson;
   if (!cay) {
-    // Không bắt buộc phải có cây — nếu nhánh chỉ match pattern thì OK
     return { ok: true, skip: true };
   }
 
@@ -179,7 +181,7 @@ function verifyCayQuyetDinh(nhanh) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   VERIFY EXPR — SỐ CỨNG + SỐ BIẾN KHỚP
+   VERIFY EXPR
    ═══════════════════════════════════════════════════════════════ */
 
 function coSoCungTrongExpr(logicValue) {
@@ -268,7 +270,7 @@ function verifySoBienKhop(nhanh) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   VERIFY CODE — KHÔNG PLACEHOLDER
+   VERIFY CODE
    ═══════════════════════════════════════════════════════════════ */
 
 function coPlaceholderTrongCode(code) {
@@ -379,7 +381,7 @@ async function goiPhaiVaParse({ owner, messages, tempKeys, label }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   HÀM CHÍNH — KIỂM CHỨNG NHÁNH
+   HÀM CHÍNH
    ═══════════════════════════════════════════════════════════════ */
 
 async function kiemChung({ nhanh, originalProblem = '', owner, tempKeys = null }) {
@@ -392,9 +394,12 @@ async function kiemChung({ nhanh, originalProblem = '', owner, tempKeys = null }
   /* BƯỚC 1 — Pattern match câu gốc */
   const patternCheck = verifyPattern(nhanh, originalProblem);
   if (originalProblem && Array.isArray(nhanh.patterns) && nhanh.patterns.length > 0) {
-    if (!patternCheck.matched) {
+    // Chỉ push issue nếu pattern THỰC SỰ không match (không phải lỗi technical)
+    if (!patternCheck.matched && !patternCheck.skip) {
       logger.warn(`⚠️ Não phải: pattern KHÔNG match câu gốc`);
       issues.push({ field: 'patterns', problem: `Pattern không match câu hỏi gốc`, severity: 'high' });
+    } else if (patternCheck.skip) {
+      logger.warn(`⚠️ Não phải: bỏ qua verify pattern (lỗi technical)`);
     }
   }
 

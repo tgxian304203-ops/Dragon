@@ -1,9 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 TIỂU NÃO — Duyệt cây gốc + chạy logic
    - Bước 1: Match pattern của nhánh
-   - Bước 2: Chạy logic (expr/code/patch)
-   - Bước 3: Chạy cây quyết định JSON của nhánh
-   - Nếu không match → báo Rồng Thần gọi Não sinh nhánh
+   - Bước 2: Chạy cây quyết định JSON của nhánh
+   - Bước 3: Nếu không match → báo Rồng Thần gọi Não sinh nhánh
    ═══════════════════════════════════════════════════════════════ */
 
 const {
@@ -14,7 +13,7 @@ const rootTreeService = require('../services/rootTree.service');
 const logger = require('../utils/logger');
 
 /* ═══════════════════════════════════════════════════════════════
-   DETECT NGÔN NGỮ USER CẦN
+   DETECT NGÔN NGỮ
    ═══════════════════════════════════════════════════════════════ */
 
 function detectLangCan(problem) {
@@ -165,9 +164,7 @@ async function xuLyNhanh({ nhanh, problem, userRequestType, owner, context = nul
     }
   }
 
-  /* ═══ BƯỚC 3: Nhánh chỉ là khung (chưa có logic) ═══ */
-  // Nếu nhánh không có pattern, không có logic, không có cây → đây là nhánh cha
-  // → báo Rồng Thần đi xuống nhánh con hoặc gọi Não sinh nhánh con
+  /* ═══ BƯỚC 3: Nhánh khung → cần đi xuống con ═══ */
   return {
     answer: null,
     type: 'need_child',
@@ -177,7 +174,7 @@ async function xuLyNhanh({ nhanh, problem, userRequestType, owner, context = nul
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   FALLBACK — Hiển thị 14 trường của nhánh
+   FALLBACK
    ═══════════════════════════════════════════════════════════════ */
 
 function formatNhanhDayDu(nhanh) {
