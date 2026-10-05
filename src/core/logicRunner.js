@@ -1,11 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    🎯 LOGIC RUNNER — Match pattern + chạy logic + cây quyết định
-   - Normalize mạnh, fuzzy match
-   - Nhánh expr: mathjs | Nhánh code/patch: Judge0
-   - HTML/CSS: KHÔNG chạy Judge0
-   - chayCayQuyetDinh — Tiểu não tư duy từ cây JSON
-   - evalCondition Unicode-safe
-   - mathjs xử lý biến undefined
+   - [SỬA] formatOutputTpl dọn biến dư
+   - [SỬA] Thêm biến i (9 biến)
    ═══════════════════════════════════════════════════════════════ */
 
 const { evaluate } = require('mathjs');
@@ -103,7 +99,10 @@ function patternToRegex(pattern) {
   let s = String(pattern).replace(/\s+/g, ' ').trim();
   s = s.replace(/\{a\}/g, '\u0001NUM\u0001').replace(/\{b\}/g, '\u0001NUM\u0001')
     .replace(/\{c\}/g, '\u0001NUM\u0001').replace(/\{d\}/g, '\u0001NUM\u0001')
-    .replace(/\{e\}/g, '\u0001NUM\u0001').replace(/\{n\}/g, '\u0001NUM\u0001')
+    .replace(/\{e\}/g, '\u0001NUM\u0001').replace(/\{f\}/g, '\u0001NUM\u0001')
+    .replace(/\{g\}/g, '\u0001NUM\u0001').replace(/\{h\}/g, '\u0001NUM\u0001')
+    .replace(/\{i\}/g, '\u0001NUM\u0001')
+    .replace(/\{n\}/g, '\u0001NUM\u0001')
     .replace(/\{name\}/g, '\u0001STR\u0001')
     .replace(/\{code\}/g, '\u0001CODE\u0001').replace(/\{error\}/g, '\u0001CODE\u0001')
     .replace(/\{text\}/g, '\u0001CODE\u0001');
@@ -134,7 +133,7 @@ function tryRegexMatch(pattern, query) {
 
 function tryFuzzyMatch(pattern, query) {
   const cleanPattern = pattern
-    .replace(/\{a\}|\{b\}|\{c\}|\{d\}|\{e\}|\{n\}/g, 'NUM')
+    .replace(/\{a\}|\{b\}|\{c\}|\{d\}|\{e\}|\{f\}|\{g\}|\{h\}|\{i\}|\{n\}/g, 'NUM')
     .replace(/\{name\}/g, 'STR')
     .replace(/\{code\}|\{error\}|\{text\}/g, 'CODE')
     .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -217,8 +216,9 @@ function extractVarsMath(problem) {
     coSo0: nums.some((n) => n === 0),
     tuKhoa: '',
   };
-  const letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-  nums.slice(0, 8).forEach((n, i) => { vars[letters[i]] = n; });
+  // 9 biến a-i
+  const letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+  nums.slice(0, 9).forEach((n, i) => { vars[letters[i]] = n; });
 
   const q = String(problem).toLowerCase();
   if (/tổng|sum|tong/.test(q)) vars.tuKhoa = 'tổng';
@@ -232,7 +232,7 @@ function extractVarsMath(problem) {
 
 function extractVarsCode(problem) {
   const q = String(problem).toLowerCase();
-  const vars = { ngonNgu: '', loai: '', tenHam: '', thamSo: '', mucDich: '', hasImage: false, hasForm: false, hasButton: false, hasCart: false };
+  const vars = { ngonNgu: '', loai: '', tenHam: '', thamSo: '', mucDich: '' };
 
   if (/python|py\b/.test(q)) vars.ngonNgu = 'python';
   else if (/javascript|js\b|node/.test(q)) vars.ngonNgu = 'javascript';
@@ -247,11 +247,6 @@ function extractVarsCode(problem) {
   else if (/script/.test(q)) vars.loai = 'script';
   else if (/web|shop|trang/.test(q)) vars.loai = 'shop';
   else if (/ui|giao diện/.test(q)) vars.loai = 'UI';
-
-  if (/ảnh|image|img/.test(q)) vars.hasImage = true;
-  if (/form|đăng ký|đăng nhập/.test(q)) vars.hasForm = true;
-  if (/nút|button/.test(q)) vars.hasButton = true;
-  if (/giỏ hàng|cart/.test(q)) vars.hasCart = true;
 
   return vars;
 }
@@ -344,7 +339,7 @@ function fixDynamicSum(logicValue, scope) {
 
 function safeEvalMathjs(logicValue, scope) {
   let expr = fixDynamicSum(logicValue, scope);
-  const singleLetters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  const singleLetters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
   for (const letter of singleLetters) {
     if (typeof scope[letter] !== 'number') {
       const re = new RegExp(`\\b${letter}\\b`, 'g');
@@ -352,6 +347,46 @@ function safeEvalMathjs(logicValue, scope) {
     }
   }
   return expr;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   [SỬA] FORMAT OUTPUT TPL — DỌN BIẾN DƯ
+   ═══════════════════════════════════════════════════════════════ */
+
+function formatOutputTpl(tpl, vars, kq) {
+  let out = String(tpl);
+  const v = vars || {};
+
+  // 1. Thay biến có giá trị
+  for (const [k, val] of Object.entries(v)) {
+    if (val === undefined || val === null) continue;
+    out = out.replace(new RegExp(`\\{${k}\\}`, 'g'), String(val));
+  }
+
+  // 2. Xóa biến không có giá trị (VD {c}, {d} khi chỉ có a, b)
+  out = out.replace(/\{[a-z]\}/gi, '');
+
+  // 3. Dọn dấu + thừa: "a + b + + + " → "a + b"
+  out = out.replace(/\s*\+\s*(?=\s*\+|\s*=|\s*$)/g, '');
+  out = out.replace(/\+\s*\+/g, '+');
+  out = out.replace(/\s+/g, ' ');
+  out = out.replace(/\s*([=+])\s*/g, ' $1 ');
+
+  // 4. Thay {kq}
+  let kqStr;
+  if (typeof kq === 'number' && Number.isFinite(kq)) {
+    kqStr = Number.isInteger(kq) ? String(kq) : String(kq).replace('.', ',');
+  } else {
+    kqStr = String(kq);
+  }
+  out = out.replace(/\{kq\}/g, kqStr);
+
+  // 5. Dọn lại lần cuối
+  out = out.replace(/\s+/g, ' ');
+  out = out.replace(/\s*\+\s*=/g, ' =');
+  out = out.replace(/\s*\+\s*$/g, '');
+
+  return out.trim();
 }
 
 async function chayCayQuyetDinh({ tip, problem }) {
@@ -431,21 +466,6 @@ async function chayLogicVoiVars({ logicType, logicValue, outputTpl, vars, proble
   }
 
   return { success: false, error: `logicType không hỗ trợ: ${logicType}` };
-}
-
-function formatOutputTpl(tpl, vars, kq) {
-  let out = String(tpl);
-  for (const [k, v] of Object.entries(vars || {})) {
-    out = out.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
-  }
-  let kqStr;
-  if (typeof kq === 'number' && Number.isFinite(kq)) {
-    kqStr = Number.isInteger(kq) ? String(kq) : String(kq).replace('.', ',');
-  } else {
-    kqStr = String(kq);
-  }
-  out = out.replace(/\{kq\}/g, kqStr);
-  return out;
 }
 
 async function runLogic({ logicType, logicValue, vars }) {

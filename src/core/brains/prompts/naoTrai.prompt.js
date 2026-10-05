@@ -1,7 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
    🧠 PROMPT — NÃO TRÁI
-   - expr: dùng biến a, b, c
+   - expr: dùng 9 biến a-i
    - code: code cụ thể, KHÔNG placeholder
+   - Rule soLuongSo == N → dùng ĐÚNG N biến
    ═══════════════════════════════════════════════════════════════ */
 
 const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho Kho 2.
@@ -34,22 +35,39 @@ const SYSTEM_PROMPT = `Bạn là NÃO TRÁI của Rồng Thần — sinh TIP cho
 === QUY TẮC CỰC QUAN TRỌNG ===
 
 LOẠI 1 — logicType="expr" (TOÁN):
-- DÙNG BIẾN: a, b, c, d, e, f, g, h
+- Có 9 biến: a, b, c, d, e, f, g, h, i
 - CẤM số cứng: 1, 2, 3, 4, 5
 
 ĐÚNG: "a + b", "a + b + c", "a * b", "a ^ b"
 SAI: "1 + 2", "5 + 10", "1 + 2 + 3"
 
 LOẠI 2 — logicType="code" (CODE):
-- Code CỤ THỂ: VD "title>Shop Đồng Hồ</title>"
-- CẤM placeholder {a}, {b}, {c}, {x}, {y}
+- Code CỤ THỂ
+- CẤM placeholder {a}, {b}, {c}
 
 ĐÚNG:
-"logicValue": "<!DOCTYPE html>\\n<html>\\n<head>\\n<title>Shop Đồng Hồ</title>\\n<style>\\nbody { font-family: Arial; }\\n</style>\\n</head>\\n<body>\\n<h1>Shop Đồng Hồ</h1>\\n<div class='product'>\\n<h3>Đồng hồ A</h3>\\n<p>Giá: 100$</p>\\n</div>\\n</body>\\n</html>"
+"logicValue": "<!DOCTYPE html>\\n<html>\\n<head>\\n<title>Shop Đồng Hồ</title>\\n</head>\\n<body>\\n<h1>Shop Đồng Hồ</h1>\\n</body>\\n</html>"
 
 SAI:
 "logicValue": "<title>{a}</title>"
-"outputTpl": "Đã tạo mã nguồn cho {a} thành công"
+
+=== QUY TẮC ĐẶC BIỆT — RULE PHẢI KHỚP SỐ BIẾN ===
+
+🚨 Khi sinh cayQuyetDinhJson.rules cho PHÉP CỘNG:
+
+Rule "soLuongSo == 2" → logicValue CHỈ "a + b", outputTpl CHỈ "{a} + {b} = **{kq}**"
+Rule "soLuongSo == 3" → logicValue CHỈ "a + b + c", outputTpl CHỈ "{a} + {b} + {c} = **{kq}**"
+Rule "soLuongSo == 4" → logicValue CHỈ "a + b + c + d"
+Rule "soLuongSo == 5" → logicValue CHỈ "a + b + c + d + e"
+Rule "soLuongSo == 6" → logicValue CHỈ "a + b + c + d + e + f"
+Rule "soLuongSo == 7" → logicValue CHỈ "a + b + c + d + e + f + g"
+Rule "soLuongSo == 8" → logicValue CHỈ "a + b + c + d + e + f + g + h"
+Rule "soLuongSo == 9" → logicValue CHỈ "a + b + c + d + e + f + g + h + i"
+Rule "soLuongSo >= 10" → logicValue "sum([a, b, c, d, e, f, g, h, i])", outputTpl "Tổng = **{kq}**"
+
+🚨 TUYỆT ĐỐI KHÔNG:
+- Rule "soLuongSo == 2" mà logicValue "a + b + c + d + e" → SAI
+- Rule "soLuongSo == 5" mà outputTpl "{a} + {b} = **{kq}**" → SAI
 
 === CHỌN logicType ===
 - PHÉP TÍNH → "expr"
@@ -65,7 +83,6 @@ SAI:
 
 === QUY TẮC CODE PHẢI CÓ \\n ===
 - Code PHẢI có xuống dòng (\\n)
-- KHÔNG dồn code 1 dòng
 
 === QUY TẮC patterns + keywords ===
 - CHỈ chứa từ khóa CÙNG CHỦ ĐỀ
@@ -74,12 +91,11 @@ SAI:
 === cayQuyetDinhJson ===
 - Có 100 rules cover mọi biến thể
 - Mỗi rule: { if, then: { logicType, logicValue, outputTpl } }
-- expr → dùng biến, code → code cụ thể
-- KHÔNG số cứng trong expr
-- KHÔNG placeholder trong code
+- expr → dùng biến a-i, rule phải khớp số biến với soLuongSo
+- code → code cụ thể, KHÔNG placeholder
 
 BIẾN CHUẨN:
-- MATH: soLuongSo, coSoAm, coSoThapPhan, coSo0, tuKhoa, a, b, c, d, e, f, g, h
+- MATH: soLuongSo, coSoAm, coSoThapPhan, coSo0, tuKhoa, a, b, c, d, e, f, g, h, i
 - CODE: ngonNgu, loai, tenHam, thamSo, mucDich
 - BUGFIX: loaiLoi, ngonNgu, dongLoi
 - EXPLAIN: loaiVan, doDai, chuDe
@@ -87,13 +103,13 @@ BIẾN CHUẨN:
 === QUY TẮC CUỐI ===
 1. Trả JSON thuần.
 2. patterns 12-15 mẫu CÙNG CHỦ ĐỀ.
-3. expr → dùng BIẾN a,b,c. KHÔNG số cứng.
-4. code → code CỤ THỂ. KHÔNG placeholder.
-5. Code PHẢI có \\n.
-6. keywords 8-12 từ CÙNG CHỦ ĐỀ.
-7. cayQuyetDinhJson có 100 RULES.
-8. outputTpl có {kq}.
-9. Ký tự đầu = {, cuối = }.
+3. expr → 9 biến a-i, KHÔNG số cứng.
+4. Rule "soLuongSo == N" → PHẢI dùng ĐÚNG N biến.
+5. code → code CỤ THỂ, KHÔNG placeholder.
+6. Code PHẢI có \\n.
+7. keywords 8-12 từ CÙNG CHỦ ĐỀ.
+8. cayQuyetDinhJson có 100 RULES.
+9. outputTpl có {kq}.
 
 BẮT ĐẦU TRẢ JSON NGAY.
 `;
@@ -139,18 +155,18 @@ function buildUserMessage({ problem, context = '', relatedTIPs = [], webResults 
   parts.push('=== QUY TẮC QUAN TRỌNG NHẤT ===');
   parts.push('');
   parts.push('NẾU logicType="expr" (TOÁN):');
-  parts.push('- Dùng BIẾN: a, b, c, d, e, f, g, h');
-  parts.push('- CẤM số cứng: 1, 2, 3, 4, 5');
-  parts.push('- VD ĐÚNG: "a + b + c"');
-  parts.push('- VD SAI: "1 + 2 + 3"');
+  parts.push('- Có 9 biến: a, b, c, d, e, f, g, h, i');
+  parts.push('- CẤM số cứng');
+  parts.push('- Rule "soLuongSo == N" → PHẢI dùng ĐÚNG N biến');
+  parts.push('- VD rule "soLuongSo == 2" → "a + b", KHÔNG "a + b + c"');
+  parts.push('- VD rule "soLuongSo == 5" → "a + b + c + d + e"');
   parts.push('');
   parts.push('NẾU logicType="code" (CODE):');
-  parts.push('- Code CỤ THỂ: VD <title>Shop Đồng Hồ</title>');
-  parts.push('- CẤM placeholder {a}, {b}, {c}');
-  parts.push('- VD SAI: "<title>{a}</title>"');
+  parts.push('- Code CỤ THỂ');
+  parts.push('- CẤM placeholder {a}, {b}');
   parts.push('');
   parts.push('CHỌN NGÔN NGỮ CODE:');
-  parts.push('- Có "spck"/"html"/"web" → HTML/CSS/JS');
+  parts.push('- "spck"/"html"/"web" → HTML/CSS/JS');
   parts.push('- CHỈ chọn Python khi user NÓI RÕ "python"');
   parts.push('');
   parts.push('Code PHẢI có \\n xuống dòng.');
